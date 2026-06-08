@@ -1,0 +1,297 @@
+"""Persistance SQLite : offres, commentaires, favoris, runs, corroboration.
+
+Thread-safe (check_same_thread=False) pour servir le backend FastAPI + le bot.
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from bot.config import DB_PATH
+from bot.models import Comment, Favorite, Offer, Run
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS offers (
+    id TEXT PRIMARY KEY,
+    dna_hash TEXT NOT NULL,
+    title TEXT, url TEXT, source TEXT, agent TEXT, provider TEXT,
+    offer_type TEXT, network TEXT, description TEXT,
+    keywords_json TEXT, found_at TEXT, first_seen TEXT, last_seen TEXT,
+    expires_at TEXT, credibility_tier TEXT DEFAULT 'pending',
+    credibility_score INTEGER DEFAULT 0, provenance_json TEXT DEFAULT '[]',
+    status TEXT DEFAULT 'new', vanished INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_offers_dna ON offers(dna_hash);
+CREATE INDEX IF NOT EXISTS idx_offers_status ON offers(status);
+CREATE INDEX IF NOT EXISTS idx_offers_tier ON offers(credibility_tier);
+
+CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    offer_dna TEXT NOT NULL, source TEXT, author TEXT, text TEXT,
+    polarity TEXT DEFAULT 'neutral', found_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_comments_dna ON comments(offer_dna);
+
+CREATE TABLE IF NOT EXISTS favorites (
+    key TEXT PRIMARY KEY, kind TEXT, label TEXT, trust_score REAL,
+    added_at TEXT, last_verified TEXT, validated_count INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, started_at TEXT, finished_at TEXT,
+    agents_json TEXT, status TEXT, offers_count INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS offer_sources (
+    offer_dna TEXT, source TEXT, url TEXT,
+    first_seen TEXT, last_seen TEXT, alive INTEGER DEFAULT 1,
+    PRIMARY KEY (offer_dna, source)
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    query TEXT NOT NULL,
+    category TEXT NOT NULL,
+    location TEXT,
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'utc')),
+    last_notified_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS alert_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id INTEGER NOT NULL,
+    offer_id TEXT NOT NULL,
+    notified_at TEXT DEFAULT (datetime('now', 'utc')),
+    UNIQUE(alert_id, offer_id)
+);
+CREATE INDEX IF NOT EXISTS idx_alert_notif_alert ON alert_notifications(alert_id);
+"""
+
+
+class Store:
+    def __init__(self, path=DB_PATH):
+        self.conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL;")
+        self.conn.execute("PRAGMA busy_timeout=5000;")
+        self.conn.executescript(SCHEMA)
+        self.conn.commit()
+        self._migrate()
+
+    def _migrate(self):
+        """Migrations incrémentales pour les bases existantes."""
+        try:
+            self.conn.execute("ALTER TABLE alerts ADD COLUMN last_notified_at TEXT")
+            self.conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Colonne déjà existante
+
+    # --- offres ---
+    def upsert_offer(self, o: Offer) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        o.last_seen = now
+        if not o.first_seen:
+            o.first_seen = now
+        self.conn.execute(
+            """INSERT INTO offers (id,dna_hash,title,url,source,agent,provider,
+               offer_type,network,description,keywords_json,found_at,first_seen,
+               last_seen,expires_at,credibility_tier,credibility_score,
+               provenance_json,status,vanished)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(id) DO UPDATE SET
+                 last_seen=excluded.last_seen,
+                 provenance_json=excluded.provenance_json,
+                 description=excluded.description""",
+            (o.id, o.dna_hash, o.title, o.url, o.source, o.agent, o.provider,
+             o.offer_type, o.network, o.description, json.dumps(o.keywords_matched),
+             o.found_at, o.first_seen, o.last_seen, o.expires_at,
+             o.credibility_tier, o.credibility_score,
+             json.dumps(o.provenance), o.status, o.vanished),
+        )
+        self.conn.commit()
+
+    def add_provenance(self, dna: str, source: str, url: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            """INSERT INTO offer_sources (offer_dna,source,url,first_seen,last_seen,alive)
+               VALUES (?,?,?,?,?,1)
+               ON CONFLICT(offer_dna,source) DO UPDATE SET last_seen=excluded.last_seen, alive=1""",
+            (dna, source, url, now, now),
+        )
+        self.conn.commit()
+
+    def mark_vanished(self, dna: str) -> int:
+        cur = self.conn.execute(
+            "UPDATE offer_sources SET alive=0 WHERE offer_dna=?", (dna,)
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def set_credibility(self, offer_id: str, tier: str, score: int,
+                        provenance: list) -> None:
+        self.conn.execute(
+            "UPDATE offers SET credibility_tier=?, credibility_score=?, provenance_json=? WHERE id=?",
+            (tier, score, json.dumps(provenance), offer_id),
+        )
+        self.conn.commit()
+
+    def set_offer_status(self, offer_id: str, status: str) -> None:
+        self.conn.execute("UPDATE offers SET status=? WHERE id=?", (status, offer_id))
+        self.conn.commit()
+
+    def get_offer(self, offer_id: str) -> Optional[Offer]:
+        row = self.conn.execute("SELECT * FROM offers WHERE id=?", (offer_id,)).fetchone()
+        return self._row_to_offer(row) if row else None
+
+    def get_offers(self, tier=None, status=None, network=None,
+                   offer_type=None, search=None, limit=500) -> List[Offer]:
+        q = "SELECT * FROM offers WHERE 1=1"
+        args = []
+        if tier:
+            q += " AND credibility_tier=?"; args.append(tier)
+        if status:
+            q += " AND status=?"; args.append(status)
+        if network:
+            q += " AND network=?"; args.append(network)
+        if offer_type:
+            q += " AND offer_type=?"; args.append(offer_type)
+        if search:
+            q += " AND (title LIKE ? OR description LIKE ? OR provider LIKE ?)"
+            args += [f"%{search}%"] * 3
+        q += " ORDER BY credibility_score DESC, last_seen DESC LIMIT ?"
+        args.append(limit)
+        return [self._row_to_offer(r) for r in self.conn.execute(q, args)]
+
+    def get_all_dna(self) -> List[str]:
+        return [r[0] for r in self.conn.execute("SELECT DISTINCT dna_hash FROM offers")]
+
+    # --- commentaires ---
+    def upsert_comment(self, c: Comment) -> None:
+        self.conn.execute(
+            """INSERT INTO comments (offer_dna,source,author,text,polarity,found_at)
+               VALUES (?,?,?,?,?,?)""",
+            (c.offer_dna, c.source, c.author, c.text, c.polarity, c.found_at),
+        )
+        self.conn.commit()
+
+    def get_comments(self, offer_dna: str) -> List[Comment]:
+        rows = self.conn.execute("SELECT * FROM comments WHERE offer_dna=?", (offer_dna,))
+        return [Comment(id=r["id"], offer_dna=r["offer_dna"], source=r["source"],
+                        author=r["author"], text=r["text"], polarity=r["polarity"],
+                        found_at=r["found_at"]) for r in rows]
+
+    # --- favoris ---
+    def add_favorite(self, f: Favorite) -> None:
+        self.conn.execute(
+            """INSERT INTO favorites (key,kind,label,trust_score,added_at,last_verified,validated_count)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(key) DO UPDATE SET validated_count=validated_count+1,
+                 trust_score=excluded.trust_score, last_verified=excluded.last_verified""",
+            (f.key, f.kind, f.label, f.trust_score, f.added_at, f.last_verified, f.validated_count),
+        )
+        self.conn.commit()
+
+    def get_favorites(self) -> List[Favorite]:
+        rows = self.conn.execute("SELECT * FROM favorites ORDER BY trust_score DESC")
+        return [Favorite(key=r["key"], kind=r["kind"], label=r["label"],
+                         trust_score=r["trust_score"], added_at=r["added_at"],
+                         last_verified=r["last_verified"],
+                         validated_count=r["validated_count"]) for r in rows]
+
+    def get_favorite_keys(self) -> List[str]:
+        return [r[0] for r in self.conn.execute("SELECT key FROM favorites")]
+
+    # --- runs ---
+    def save_run(self, run: Run) -> int:
+        cur = self.conn.execute(
+            "INSERT INTO runs (started_at,finished_at,agents_json,status,offers_count) VALUES (?,?,?,?,?)",
+            (run.started_at, run.finished_at, json.dumps(run.agents),
+             run.status, run.offers_count),
+        )
+        self.conn.commit()
+        return cur.lastrowid
+
+    def update_run(self, run_id: int, status: str, offers_count: int) -> None:
+        self.conn.execute(
+            "UPDATE runs SET status=?, finished_at=?, offers_count=? WHERE id=?",
+            (status, datetime.now(timezone.utc).isoformat(), offers_count, run_id),
+        )
+        self.conn.commit()
+
+    def get_stats(self) -> dict:
+        total = self.conn.execute("SELECT COUNT(*) FROM offers").fetchone()[0]
+        by_tier = dict(self.conn.execute(
+            "SELECT credibility_tier, COUNT(*) FROM offers GROUP BY credibility_tier").fetchall())
+        by_type = dict(self.conn.execute(
+            "SELECT offer_type, COUNT(*) FROM offers GROUP BY offer_type").fetchall())
+        by_network = dict(self.conn.execute(
+            "SELECT network, COUNT(*) FROM offers GROUP BY network").fetchall())
+        favs = self.conn.execute("SELECT COUNT(*) FROM favorites").fetchone()[0]
+        runs = self.conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        return {"total": total, "by_tier": by_tier, "by_type": by_type,
+                "by_network": by_network, "favorites": favs, "runs": runs}
+
+    def _row_to_offer(self, r) -> Offer:
+        return Offer(
+            id=r["id"], dna_hash=r["dna_hash"], title=r["title"], url=r["url"],
+            source=r["source"], agent=r["agent"], provider=r["provider"],
+            offer_type=r["offer_type"], network=r["network"], description=r["description"],
+            keywords_matched=json.loads(r["keywords_json"] or "[]"),
+            found_at=r["found_at"], first_seen=r["first_seen"], last_seen=r["last_seen"],
+            expires_at=r["expires_at"], credibility_tier=r["credibility_tier"],
+            credibility_score=r["credibility_score"],
+            provenance=json.loads(r["provenance_json"] or "[]"),
+            status=r["status"], vanished=r["vanished"],
+        )
+
+    def add_alert(self, email: str, query: str, category: str, location: Optional[str] = None) -> int:
+        cursor = self.conn.execute(
+            "INSERT INTO alerts (email, query, category, location) VALUES (?,?,?,?)",
+            (email, query, category, location)
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_alerts(self, active_only: bool = True) -> List[dict]:
+        q = "SELECT * FROM alerts"
+        if active_only:
+            q += " WHERE active=1"
+        q += " ORDER BY created_at DESC"
+        rows = self.conn.execute(q).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_alert(self, alert_id: int) -> None:
+        self.conn.execute("DELETE FROM alerts WHERE id=?", (alert_id,))
+        self.conn.commit()
+
+    def record_alert_notification(self, alert_id: int, offer_id: str) -> None:
+        """Enregistre qu'une offre a déjà été notifiée pour une alerte donnée."""
+        self.conn.execute(
+            "INSERT OR IGNORE INTO alert_notifications (alert_id, offer_id) VALUES (?,?)",
+            (alert_id, offer_id),
+        )
+        self.conn.commit()
+
+    def get_notified_offer_ids(self, alert_id: int) -> set:
+        """Renvoie l'ensemble des offer_id déjà notifiés pour cette alerte."""
+        rows = self.conn.execute(
+            "SELECT offer_id FROM alert_notifications WHERE alert_id=?", (alert_id,)
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def update_alert_last_notified(self, alert_id: int) -> None:
+        """Met à jour l'horodatage de dernière notification."""
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            "UPDATE alerts SET last_notified_at=? WHERE id=?", (now, alert_id)
+        )
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+
