@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1C1917">
+<title>Sentinelle — Veille & Recherche Intelligente</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/app.css?v=3">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  // Cache-bust static assets after market charts upgrade
+  window.SCOUT_ASSET_V = "3";
+</script>
+<!-- Firebase Auth & Analytics -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
+
+<!-- Google Analytics (GA4) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-0LZ7R6J88X"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-0LZ7R6J88X');
+</script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand-mark" title="Sentinelle">S</div>
+      <button class="btn-new" id="btnNewChat" type="button">+ Nouveau</button>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="home" type="button">Recherche</button>
+      <button class="nav-item" data-view="opportunities" type="button">Opportunités</button>
+      <button class="nav-item" data-view="watches" type="button">Mes suivis</button>
+      <button class="nav-item" data-view="learn" type="button">Learn Trading</button>
+      <div class="nav-label">Espaces</div>
+      <div id="spacesNav"></div>
+      <div class="nav-label">Outils</div>
+      <button class="nav-item" data-view="tools" type="button">Offres IA / Dashboard</button>
+      <button class="nav-item" data-view="medical-pro" type="button">Portail clinique</button>
+      <button class="nav-item" data-view="profile" type="button">Mon profil</button>
+    </nav>
+    <div class="sidebar-history">
+      <div class="nav-label">Historique</div>
+      <div id="historyList" class="history-list"></div>
+    </div>
+    <div class="sidebar-foot">
+      <div id="authSection" class="auth-section">
+        <div id="authLoggedOut" class="auth-logged-out">
+          <button class="btn-login" id="btnLogin" type="button">🔑 Se connecter</button>
+        </div>
+        <div id="authLoggedIn" class="auth-logged-in hidden">
+          <img id="authAvatar" class="auth-avatar" src="" alt="">
+          <span id="authName" class="auth-name"></span>
+          <button class="btn-logout" id="btnLogout" type="button" title="Déconnexion">⬅</button>
+        </div>
+      </div>
+      <button class="btn-theme" id="btnTheme" type="button" title="Theme">Theme clair</button>
+    </div>
+  </aside>
+
+  <div class="main-wrap">
+    <header class="top-strip">
+      <button class="btn-icon" id="btnSidebar" type="button" aria-label="Menu">☰</button>
+      <span class="muted" id="topHint">Réponses ancrées sur le scraping uniquement</span>
+    </header>
+
+    <!-- HOME / CHAT -->
+    <section id="view-home" class="view active">
+      <div id="homeLanding" class="home-landing">
+        <p class="eyebrow">Recherche</p>
+        <h1 class="home-title">Que voulez-vous savoir&nbsp;?</h1>
+        <form id="homeForm" class="ask-box" onsubmit="event.preventDefault();">
+          <textarea id="homeInput" rows="2" placeholder="Demandez ce que vous voulez..." autocomplete="off"></textarea>
+          <div class="ask-toolbar">
+            <span class="muted small">Sources live · suivis · crypto · géo · prédictions · santé</span>
+            <button type="submit" class="primary ask-send">Rechercher</button>
+          </div>
+        </form>
+        <div class="space-chips" id="spaceChips"></div>
+        <p class="muted small" style="margin-top:18px;">Ex. « suis Google », « suis Chine Taïwan », « suis la guerre en Iran »</p>
+      </div>
+
+      <div id="chatThread" class="chat-thread hidden">
+        <div id="threadMessages" class="thread-messages"></div>
+        <form id="threadForm" class="ask-box ask-box-sticky" onsubmit="event.preventDefault();">
+          <textarea id="threadInput" rows="1" placeholder="Affiner la recherche..." autocomplete="off"></textarea>
+          <div class="ask-toolbar">
+            <button type="button" class="btn" id="btnBackHome">Accueil</button>
+            <button type="submit" class="primary ask-send">Envoyer</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- WATCHES -->
+    <section id="view-watches" class="view">
+      <div class="space-header">
+        <h2>Mes suivis</h2>
+        <p class="muted">Dashboards d'évolution : entreprises, conflits, événements.</p>
+        <form id="watchCreateForm" class="space-actions" onsubmit="event.preventDefault();">
+          <input type="text" id="watchTitle" placeholder="Ex: SpaceX, Google, Chine-Taïwan, Iran..." required>
+          <select id="watchKind">
+            <option value="">Auto</option>
+            <option value="company">Entreprise</option>
+            <option value="crypto">Crypto</option>
+            <option value="geopolitics">Géopolitique</option>
+            <option value="event">Événement</option>
+            <option value="custom">Autre</option>
+          </select>
+          <input type="text" id="watchTicker" placeholder="Ticker (GOOGL, BTCUSDT…)">
+          <button class="primary" type="submit">Créer / actualiser</button>
+        </form>
+      </div>
+      <div id="watchesList" class="discover-grid"></div>
+    </section>
+
+    <section id="view-watch-dash" class="view">
+      <div class="space-header">
+        <button class="btn" id="btnBackWatches" type="button">← Mes suivis</button>
+        <h2 id="watchDashTitle">Dashboard</h2>
+        <p class="muted" id="watchDashMeta"></p>
+        <p class="disclaimer show" id="watchDashDisclaimer"></p>
+        <p class="muted small" id="watchMarketNote">Sources : Yahoo (actions ~15 min) · Binance (crypto near-realtime) · Finnhub/AV si clé.</p>
+        <div class="space-actions">
+          <button class="btn" id="btnWatchRefresh" type="button">Actualiser données</button>
+          <label class="muted small" style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="watchAutoRefresh" checked> Auto-refresh
+          </label>
+          <select id="watchChartRange">
+            <option value="1d">1j</option>
+            <option value="5d">5j</option>
+            <option value="1mo">1m</option>
+            <option value="3mo" selected>3m</option>
+            <option value="1y">1a</option>
+          </select>
+          <button class="btn" id="btnWatchSummary" type="button">Résumé</button>
+          <button class="btn" id="btnWatchAnalysis" type="button">Analyse</button>
+          <button class="primary" id="btnWatchTrading" type="button">Pistes trading (indicatif)</button>
+        </div>
+      </div>
+      <div class="dash-layout">
+        <div class="dash-kpis" id="watchKpis"></div>
+        <div class="panel">
+          <h3>Évolution du cours <span class="muted small" id="watchChartSource"></span></h3>
+          <div id="watchPriceChart" class="tv-chart"></div>
+          <p class="muted small" id="watchPriceEmpty">Pas de ticker / pas encore de données de prix.</p>
+        </div>
+        <div class="dash-split">
+          <div class="panel">
+            <h3>Types d'événements</h3>
+            <canvas id="watchTypeChart" height="160"></canvas>
+          </div>
+          <div class="panel">
+            <h3>Insights IA</h3>
+            <div id="watchInsights" class="insight-box muted">Lance un résumé ou une analyse.</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Historique / annonces</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="watchEventsTable">
+              <thead><tr><th>Type</th><th>Titre</th><th>Source</th><th>Date</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- OPPORTUNITIES -->
+    <section id="view-opportunities" class="view">
+      <div class="space-header">
+        <h2>Opportunités</h2>
+        <p class="muted">Emplois, bourses, voyages et events scorés selon ton profil.</p>
+        <div class="digest-box" id="oppDigest">Chargement du digest…</div>
+        <div class="space-actions">
+          <button class="primary" id="btnOppDigestRefresh" type="button">Rafraîchir les idées</button>
+          <input type="search" id="oppSearch" placeholder="Filtrer (ex: Python, Douala)…">
+          <input type="text" id="oppCity" placeholder="Ville">
+          <input type="text" id="oppCountry" placeholder="Pays">
+          <input type="text" id="oppCompany" placeholder="Entreprise">
+          <button class="btn" id="btnOppSearch" type="button">Chercher</button>
+        </div>
+        <div class="tabs" id="oppTabs">
+          <button class="tab active" data-opp="feed" type="button">Pour toi</button>
+          <button class="tab" data-opp="job" type="button">Emplois</button>
+          <button class="tab" data-opp="scholarship" type="button">Bourses</button>
+          <button class="tab" data-opp="travel" type="button">Voyages</button>
+          <button class="tab" data-opp="event" type="button">Events</button>
+        </div>
+      </div>
+      <div id="oppGrid" class="discover-grid"></div>
+    </section>
+
+    <!-- PROFILE -->
+    <section id="view-profile" class="view">
+      <div class="panel">
+        <h2>Mon profil</h2>
+        <p class="muted">Local uniquement — guide digests et matching d'opportunités.</p>
+        <form id="profileForm" class="profile-form" onsubmit="event.preventDefault();">
+          <label>Prénom / nom d'affichage
+            <input type="text" id="pfName" placeholder="Aristide">
+          </label>
+          <label>Compétences (virgules)
+            <input type="text" id="pfSkills" placeholder="Python, Flutter, scraping">
+          </label>
+          <label>Centres d'intérêt (virgules)
+            <input type="text" id="pfInterests" placeholder="tech, finance, média">
+          </label>
+          <label>Ville
+            <input type="text" id="pfCity" placeholder="Douala">
+          </label>
+          <label>Pays
+            <input type="text" id="pfCountry" placeholder="Cameroun">
+          </label>
+          <label>Entreprises préférées (virgules)
+            <input type="text" id="pfCompanies" placeholder="Google, MTN, Kmer Job">
+          </label>
+          <label>Niveau trading
+            <select id="pfTrading">
+              <option value="beginner">Débutant</option>
+              <option value="intermediate">Intermédiaire</option>
+              <option value="pro">Pro</option>
+            </select>
+          </label>
+          <button class="primary" type="submit">Enregistrer</button>
+          <p class="muted small" id="profileSaved"></p>
+        </form>
+      </div>
+    </section>
+
+    <!-- LEARN TRADING -->
+    <section id="view-learn" class="view">
+      <div class="space-header">
+        <h2>Learn Trading</h2>
+        <p class="disclaimer show">Simulation éducative — pas un conseil financier, pas d'argent réel. Prix via Yahoo (dernier close scrapé).</p>
+        <div class="space-actions">
+          <span class="muted" id="learnLevelBadge">Niveau: beginner</span>
+          <select id="learnLevelSelect">
+            <option value="beginner">Débutant</option>
+            <option value="intermediate">Intermédiaire</option>
+            <option value="pro">Pro</option>
+          </select>
+          <button class="btn" id="btnLearnLevel" type="button">Appliquer niveau</button>
+          <button class="btn" id="btnLearnReset" type="button">Reset démo</button>
+        </div>
+      </div>
+      <div class="dash-kpis" id="learnKpis"></div>
+      <div class="panel" style="margin-bottom:12px;">
+        <div class="space-actions" style="margin-bottom:8px;">
+          <h3 style="margin:0;">Cours du symbole</h3>
+          <select id="learnChartRange">
+            <option value="5d">5 j</option>
+            <option value="1mo" selected>1 mois</option>
+            <option value="3mo">3 mois</option>
+            <option value="6mo">6 mois</option>
+            <option value="1y">1 an</option>
+          </select>
+          <button class="btn" id="btnLearnChartRefresh" type="button">Actualiser</button>
+        </div>
+        <div id="learnChart" style="width:100%;height:300px;"></div>
+        <p class="muted small" id="learnChartSource"></p>
+      </div>
+      <div class="dash-split">
+        <div class="panel" id="learnTradePanel">
+          <h3>Ordre papier</h3>
+          <form id="learnOrderForm" class="profile-form" onsubmit="event.preventDefault();">
+            <label>Symbole
+              <input type="text" id="learnSymbol" value="GOOGL" required>
+            </label>
+            <label>Action
+              <select id="learnSide"><option value="buy">Acheter</option><option value="sell">Vendre</option></select>
+            </label>
+            <label>Quantité
+              <input type="number" id="learnQty" value="1" min="0.01" step="0.01" required>
+            </label>
+            <label id="learnOrderTypeWrap" class="hidden">Type
+              <select id="learnOrderType"><option value="market">Market</option><option value="limit">Limit</option></select>
+            </label>
+            <label id="learnLimitWrap" class="hidden">Prix limite
+              <input type="number" id="learnLimit" step="0.01">
+            </label>
+            <button class="primary" type="submit" id="learnSubmitBtn">Acheter / Vendre</button>
+            <p class="muted small" id="learnTradeMsg"></p>
+          </form>
+          <div id="learnGlossary" class="muted small" style="margin-top:12px;"></div>
+        </div>
+        <div class="panel">
+          <h3>Assistant</h3>
+          <form id="learnAskForm" class="profile-form" onsubmit="event.preventDefault();">
+            <label>Question
+              <input type="text" id="learnAsk" placeholder="C'est quoi un spread ?">
+            </label>
+            <button class="btn" type="submit">Expliquer</button>
+          </form>
+          <div id="learnAnswer" class="insight-box muted">Pose une question sur ton portefeuille démo ou un terme de trading.</div>
+        </div>
+      </div>
+      <div class="dash-split">
+        <div class="panel">
+          <h3>Positions</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="learnPosTable">
+              <thead><tr><th>Symbole</th><th>Qty</th><th>Prix moy.</th><th>Dernier</th><th>P&amp;L</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Fills récents</h3>
+          <div class="table-wrap">
+            <table class="data-table" id="learnFillsTable">
+              <thead><tr><th>Symbole</th><th>Side</th><th>Qty</th><th>Prix</th><th>Date</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SPACE PAGE -->
+    <section id="view-space" class="view">
+      <div class="space-header">
+        <h2 id="spaceTitle">Espace</h2>
+        <p class="muted" id="spaceDesc"></p>
+        <p class="disclaimer" id="spaceDisclaimer"></p>
+        <div class="space-actions">
+          <input type="search" id="spaceSearch" placeholder="Filtrer dans cet espace...">
+          <button class="btn" id="btnSpaceRefresh" type="button">Actualiser</button>
+          <button class="primary" id="btnSpaceAsk" type="button">Demander à l'assistant</button>
+        </div>
+      </div>
+      <div id="spaceGrid" class="discover-grid"></div>
+    </section>
+
+    <!-- TOOLS (legacy) -->
+    <section id="view-tools" class="view">
+      <div class="panel tools-panel">
+        <h2>Outils Offres IA</h2>
+        <p class="muted">Dashboard historique du scrapper d'offres / promotions.</p>
+        <div class="stats" id="stats"></div>
+        <div class="run-row">
+          <span id="liveDot" class="dot idle"></span>
+          <button id="btnRun" class="primary" type="button">Lancer un run</button>
+        </div>
+        <div id="agentStatus" class="agents"></div>
+        <div class="filters" style="margin-top:16px;">
+          <input id="search" type="search" placeholder="Rechercher une offre...">
+          <select id="fTier"><option value="">Toutes crédibilités</option><option value="verified">Vérifiée</option><option value="pas_sur">Pas sûr</option><option value="rejected">Rejetée</option></select>
+          <select id="fNetwork"></select>
+          <select id="fType"></select>
+        </div>
+        <div id="offerList" class="cards"></div>
+      </div>
+    </section>
+
+    <!-- MEDICAL PRO (compact entry) -->
+    <section id="view-medical-pro" class="view">
+      <div class="panel">
+        <h2>Portail clinique B2B</h2>
+        <p class="muted">Essais cliniques, PubMed, pharmacopée — accès pro.</p>
+        <div class="med-search-row">
+          <input type="text" id="medSearch" placeholder="Pathologie (ex: malaria)...">
+          <button id="btnMedSearch" class="primary" type="button">Rechercher</button>
+        </div>
+        <div id="medStats" class="muted" style="margin:8px 0;"></div>
+        <div id="medGrid" class="discover-grid"></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- Medical modal (reused) -->
+<div id="medicalModal" class="modal hidden">
+  <div class="modal-card cheat-sheet-card">
+    <button class="close" id="medClose" type="button">✕</button>
+    <h3 id="medTitle"></h3>
+    <div id="medStatusBadge"></div>
+    <div class="cheat-sheet-body">
+      <h4>Fiche synthétique</h4>
+      <div id="medCheatSheetContent"></div>
+    </div>
+    <p id="medLabName"></p>
+    <p id="medCityCountry" class="muted"></p>
+    <p id="medTrialUrl"></p>
+    <textarea id="medCaseSummary" rows="2" placeholder="Cas anonymisé..."></textarea>
+    <button id="btnGenerateMedicalEmail" class="primary" type="button" style="width:100%;margin-top:8px;">Mise en relation</button>
+  </div>
+</div>
+
+<!-- Login Modal -->
+<div id="loginModal" class="modal hidden">
+  <div class="modal-card login-card">
+    <button class="close" id="loginClose" type="button">✕</button>
+    <h3>Connexion à Sentinelle</h3>
+    <p class="muted">Connecte-toi pour accéder au chat, trading et créer des suivis.</p>
+    <button class="btn-google" id="btnGoogleLogin" type="button">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      Continuer avec Google
+    </button>
+    <div class="login-divider"><span>ou</span></div>
+    <form id="emailLoginForm" onsubmit="event.preventDefault();">
+      <input type="email" id="loginEmail" placeholder="Email" required>
+      <input type="password" id="loginPassword" placeholder="Mot de passe" required>
+      <button class="primary" type="submit" style="width:100%">Se connecter</button>
+    </form>
+    <p class="muted small" style="margin-top:12px;text-align:center;">
+      <a href="#" id="btnSwitchRegister">Pas encore de compte ? Créer un compte</a>
+    </p>
+  </div>
+</div>
+
+<script src="/static/app.js?v=5"></script>
+</body>
+</html>
