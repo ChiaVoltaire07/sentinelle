@@ -1,0 +1,14 @@
+{
+  "name": "Sentinelle — Veille & Recherche Intelligente",
+  "short_name": "Sentinelle",
+  "description": "Hub de recherche ancré sur le scraping : actualité, crypto, géopolitique, santé, prédictions.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#1C1917",
+  "theme_color": "#D97706",
+  "lang": "fr",
+  "icons": [
+    { "src": "/static/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
