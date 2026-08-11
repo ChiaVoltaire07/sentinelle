@@ -74,10 +74,16 @@ CREATE INDEX IF NOT EXISTS idx_alert_notif_alert ON alert_notifications(alert_id
 
 class Store:
     def __init__(self, path=DB_PATH):
-        self.conn = sqlite3.connect(str(path), check_same_thread=False, isolation_level=None)
+        from pathlib import Path
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(p), check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL;")
-        self.conn.execute("PRAGMA busy_timeout=5000;")
+        self.conn.execute("PRAGMA busy_timeout=10000;")
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+        except sqlite3.OperationalError:
+            pass  # WAL déjà configuré ou verrouillage temporaire lors de l'init
         self.conn.executescript(SCHEMA)
         self.conn.commit()
         self._migrate()
