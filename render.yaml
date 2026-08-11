@@ -1,0 +1,40 @@
+services:
+  - type: web
+    name: sentinelle
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentinelle-db
+          property: connectionString
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false
+      - key: MEDICAL_AUTH_OPTIONAL
+        value: "0"
+      - key: PREFER_OLLAMA
+        value: "false"
+      - key: MEDICAL_AUTH_SECRET
+        generateValue: true
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: PYTHON_ENV
+        value: production
+
+databases:
+  - name: sentinelle-db
+    plan: free
+    postgresMajorVersion: 16
+    ipAllowList: []

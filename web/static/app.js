@@ -1,0 +1,1347 @@
+// Sentinelle — Veille intelligente & Recherche ancrée
+const $ = (s) => document.querySelector(s);
+
+// --- Firebase Configuration ---
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDEbXSEs3etZrYg3AF1OegxGuwHP1oU0Ss",
+  authDomain: "sentinelle-553b2.firebaseapp.com",
+  projectId: "sentinelle-553b2",
+  storageBucket: "sentinelle-553b2.firebasestorage.app",
+  messagingSenderId: "329906905902",
+  appId: "1:329906905902:web:db8e30d17d8f9d626f50bf",
+  measurementId: "G-0LZ7R6J88X"
+};
+
+const state = {
+  sessionId: localStorage.getItem("sentinelle_session") || ("s_" + Date.now()),
+  spaces: [],
+  currentSpace: null,
+  currentWatchSlug: null,
+  theme: localStorage.getItem("scout_theme") || "dark",
+  offers: [],
+  agents: {},
+  running: false,
+  token: localStorage.getItem("med_token") || "",
+  firebaseUser: null,
+  priceChart: null,
+  typeChart: null,
+  lwChart: null,
+  lwSeries: null,
+  lwSma: null,
+  marketSSE: null,
+  oppTab: "feed",
+  watchRefreshTimer: null,
+  watchAssetClass: null,
+};
+
+localStorage.setItem("scout_session", state.sessionId);
+
+async function api(path, opts = {}) {
+  const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+  // Préférer le token Firebase, sinon fallback sur le legacy token médical
+  if (state.firebaseUser) {
+    try {
+      const freshToken = await state.firebaseUser.getIdToken();
+      headers.Authorization = "Bearer " + freshToken;
+    } catch (e) {
+      console.warn("[Auth] Failed to get Firebase token:", e);
+    }
+  } else if (state.token) {
+    headers.Authorization = "Bearer " + state.token;
+  }
+  const r = await fetch(path, { ...opts, headers });
+  return r.json();
+}
+
+function esc(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function mdToHtml(md) {
+  let h = esc(md);
+  h = h.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  h = h.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  h = h.replace(/\n/g, "<br>");
+  return h;
+}
+
+function applyTheme() {
+  document.documentElement.setAttribute("data-theme", state.theme);
+  const btn = $("#btnTheme");
+  if (btn) btn.textContent = state.theme === "dark" ? "Theme clair" : "Theme sombre";
+  document.querySelector('meta[name="theme-color"]')?.setAttribute(
+    "content",
+    state.theme === "dark" ? "#1C1917" : "#FAF7F2"
+  );
+}
+
+function showView(name) {
+  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  const el = $("#view-" + name);
+  if (el) el.classList.add("active");
+  document.querySelectorAll(".nav-item").forEach((n) => {
+    n.classList.toggle("active", n.dataset.view === name || (name === "space" && n.dataset.space && n.dataset.space === state.currentSpace));
+  });
+  $("#sidebar")?.classList.remove("open");
+}
+
+// --- Firebase Auth helpers ---
+function initFirebaseAuth() {
+  if (typeof firebase === "undefined" || !firebase.apps) {
+    console.warn("[Auth] Firebase SDK non chargé.");
+    return;
+  }
+  if (!firebase.apps.length) {
+    firebase.initializeApp(FIREBASE_CONFIG);
+  }
+  if (firebase.analytics) {
+    try { firebase.analytics(); } catch (e) { console.debug("Analytics init:", e); }
+  }
+  firebase.auth().onAuthStateChanged((user) => {
+    state.firebaseUser = user;
+    updateAuthUI(user);
+  });
+}
+
+function updateAuthUI(user) {
+  const loggedOut = $("#authLoggedOut");
+  const loggedIn = $("#authLoggedIn");
+  if (!loggedOut || !loggedIn) return;
+
+  if (user) {
+    loggedOut.classList.add("hidden");
+    loggedIn.classList.remove("hidden");
+    const avatar = $("#authAvatar");
+    const name = $("#authName");
+    if (avatar) {
+      avatar.src = user.photoURL || "";
+      avatar.style.display = user.photoURL ? "block" : "none";
+    }
+    if (name) name.textContent = user.displayName || user.email || "Utilisateur";
+  } else {
+    loggedOut.classList.remove("hidden");
+    loggedIn.classList.add("hidden");
+  }
+}
+
+async function loginWithGoogle() {
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await firebase.auth().signInWithPopup(provider);
+    $("#loginModal")?.classList.add("hidden");
+  } catch (e) {
+    console.error("[Auth] Google login error:", e);
+    alert("Erreur de connexion Google : " + e.message);
+  }
+}
+
+async function loginWithEmail(email, password) {
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, password);
+    $("#loginModal")?.classList.add("hidden");
+  } catch (e) {
+    if (e.code === "auth/user-not-found") {
+      // Auto-cr\u00e9ation du compte
+      try {
+        await firebase.auth().createUserWithEmailAndPassword(email, password);
+        $("#loginModal")?.classList.add("hidden");
+      } catch (e2) {
+        alert("Erreur de cr\u00e9ation : " + e2.message);
+      }
+    } else {
+      alert("Erreur de connexion : " + e.message);
+    }
+  }
+}
+
+function logout() {
+  if (typeof firebase !== "undefined" && firebase.auth) {
+    firebase.auth().signOut();
+  }
+  state.token = "";
+  state.firebaseUser = null;
+  localStorage.removeItem("med_token");
+}
+
+async function init() {
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+  applyTheme();
+  initFirebaseAuth();
+
+  $("#btnTheme").addEventListener("click", () => {
+    state.theme = state.theme === "dark" ? "light" : "dark";
+    localStorage.setItem("scout_theme", state.theme);
+    applyTheme();
+  });
+  $("#btnSidebar")?.addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+
+  // Auth event listeners
+  $("#btnLogin")?.addEventListener("click", () => $("#loginModal")?.classList.remove("hidden"));
+  $("#loginClose")?.addEventListener("click", () => $("#loginModal")?.classList.add("hidden"));
+  $("#btnLogout")?.addEventListener("click", logout);
+  $("#btnGoogleLogin")?.addEventListener("click", loginWithGoogle);
+  $("#emailLoginForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const email = $("#loginEmail")?.value;
+    const pwd = $("#loginPassword")?.value;
+    if (email && pwd) loginWithEmail(email, pwd);
+  });
+  $("#btnSwitchRegister")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    // Le formulaire email fait d\u00e9j\u00e0 auto-register si user-not-found
+    alert("Remplis le formulaire email et clique Se connecter \u2014 ton compte sera cr\u00e9\u00e9 automatiquement.");
+  });
+
+  $("#btnNewChat").addEventListener("click", newChat);
+  $("#btnBackHome").addEventListener("click", () => {
+    $("#chatThread").classList.add("hidden");
+    $("#homeLanding").classList.remove("hidden");
+    showView("home");
+  });
+  $("#homeForm").addEventListener("submit", () => ask($("#homeInput").value));
+  $("#threadForm").addEventListener("submit", () => ask($("#threadInput").value));
+  $("#btnSpaceRefresh").addEventListener("click", () => loadSpace(state.currentSpace));
+  $("#btnSpaceAsk").addEventListener("click", () => {
+    const title = state.spaces.find((s) => s.slug === state.currentSpace)?.title || state.currentSpace;
+    showView("home");
+    ask(`Fais le point sur l'espace ${title}`);
+  });
+  $("#spaceSearch").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadSpace(state.currentSpace, $("#spaceSearch").value.trim());
+  });
+
+  document.querySelectorAll(".nav-item[data-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const v = btn.dataset.view;
+      if (v === "home") {
+        newChat(false);
+        showView("home");
+      } else if (v === "watches") {
+        showView("watches");
+        loadWatches();
+      } else if (v === "opportunities") {
+        showView("opportunities");
+        loadOpportunitiesView();
+      } else if (v === "profile") {
+        showView("profile");
+        loadProfile();
+      } else if (v === "learn") {
+        showView("learn");
+        loadLearn();
+      } else if (v === "tools") {
+        showView("tools");
+        loadStats();
+        loadOffers();
+        loadAgents();
+      } else if (v === "medical-pro") {
+        showView("medical-pro");
+        loadMedicalStats();
+        loadMedicalRecords();
+      }
+    });
+  });
+
+  $("#watchCreateForm")?.addEventListener("submit", createWatchFromForm);
+  $("#btnBackWatches")?.addEventListener("click", () => {
+    stopMarketSSE();
+    showView("watches");
+    loadWatches();
+  });
+  $("#btnWatchRefresh")?.addEventListener("click", () => refreshCurrentWatch());
+  $("#btnWatchSummary")?.addEventListener("click", () => analyzeCurrentWatch("summary"));
+  $("#btnWatchAnalysis")?.addEventListener("click", () => analyzeCurrentWatch("analysis"));
+  $("#btnWatchTrading")?.addEventListener("click", () => analyzeCurrentWatch("trading"));
+  $("#watchAutoRefresh")?.addEventListener("change", () => setupWatchAutoRefresh());
+  $("#watchChartRange")?.addEventListener("change", () => {
+    if (state.currentWatchSlug) loadWatchLiveChart();
+  });
+
+  $("#btnOppDigestRefresh")?.addEventListener("click", () => loadOppDigest());
+  $("#btnOppSearch")?.addEventListener("click", () => loadOppGrid());
+  $("#oppSearch")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loadOppGrid();
+  });
+  document.querySelectorAll("#oppTabs .tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.oppTab = btn.dataset.opp;
+      document.querySelectorAll("#oppTabs .tab").forEach((t) => t.classList.toggle("active", t === btn));
+      loadOppGrid();
+    });
+  });
+  $("#profileForm")?.addEventListener("submit", saveProfile);
+  $("#learnOrderForm")?.addEventListener("submit", placeLearnOrder);
+  $("#learnAskForm")?.addEventListener("submit", askLearn);
+  $("#btnLearnLevel")?.addEventListener("click", setLearnLevel);
+  $("#btnLearnReset")?.addEventListener("click", resetLearn);
+  $("#learnOrderType")?.addEventListener("change", () => {
+    $("#learnLimitWrap")?.classList.toggle("hidden", $("#learnOrderType").value !== "limit");
+  });
+  $("#learnSide")?.addEventListener("change", () => {
+    const side = $("#learnSide").value;
+    $("#learnSubmitBtn").textContent = side === "buy" ? "Acheter" : "Vendre";
+  });
+  $("#learnSymbol")?.addEventListener("change", loadLearnChart);
+  $("#learnChartRange")?.addEventListener("change", loadLearnChart);
+  $("#btnLearnChartRefresh")?.addEventListener("click", loadLearnChart);
+
+  $("#btnRun")?.addEventListener("click", runAll);
+  ["search", "fTier", "fNetwork", "fType"].forEach((id) => {
+    const el = $("#" + id);
+    if (el) el.addEventListener("input", renderOffers);
+  });
+  $("#btnMedSearch")?.addEventListener("click", loadMedicalRecords);
+  $("#medSearch")?.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") loadMedicalRecords();
+  });
+  $("#medClose")?.addEventListener("click", () => $("#medicalModal").classList.add("hidden"));
+  $("#btnGenerateMedicalEmail")?.addEventListener("click", generateMedicalEmail);
+
+  await loadSpaces();
+  await loadHistory();
+  connectSSE();
+}
+
+function newChat(resetSession = true) {
+  if (resetSession) {
+    state.sessionId = "s_" + Date.now();
+    localStorage.setItem("scout_session", state.sessionId);
+  }
+  $("#threadMessages").innerHTML = "";
+  $("#chatThread").classList.add("hidden");
+  $("#homeLanding").classList.remove("hidden");
+  $("#homeInput").value = "";
+  showView("home");
+}
+
+async function loadSpaces() {
+  try {
+    state.spaces = await api("/api/spaces");
+  } catch (_) {
+    state.spaces = [];
+  }
+  const nav = $("#spacesNav");
+  const chips = $("#spaceChips");
+  nav.innerHTML = state.spaces
+    .map(
+      (s) =>
+        `<button class="nav-item" type="button" data-space="${esc(s.slug)}">${esc(s.title)}</button>`
+    )
+    .join("");
+  chips.innerHTML = state.spaces
+    .map((s) => `<button class="chip" type="button" data-space="${esc(s.slug)}">${esc(s.title)}</button>`)
+    .join("");
+
+  document.querySelectorAll("[data-space]").forEach((btn) => {
+    btn.addEventListener("click", () => openSpace(btn.dataset.space));
+  });
+}
+
+async function openSpace(slug) {
+  state.currentSpace = slug;
+  showView("space");
+  document.querySelectorAll(".nav-item").forEach((n) => {
+    n.classList.toggle("active", n.dataset.space === slug);
+  });
+  await loadSpace(slug);
+}
+
+async function loadSpace(slug, q = "") {
+  const grid = $("#spaceGrid");
+  grid.innerHTML = '<p class="muted">Chargement des sources...</p>';
+  let url = `/api/spaces/${encodeURIComponent(slug)}`;
+  if (q) url += `?q=${encodeURIComponent(q)}`;
+  try {
+    const data = await api(url);
+    $("#spaceTitle").textContent = data.title || slug;
+    $("#spaceDesc").textContent = data.description || "";
+    const disc = $("#spaceDisclaimer");
+    if (data.disclaimer) {
+      disc.textContent = data.disclaimer;
+      disc.classList.add("show");
+    } else {
+      disc.classList.remove("show");
+      disc.textContent = "";
+    }
+    const items = data.items || [];
+    grid.innerHTML =
+      items
+        .map((it) => {
+          const meta = esc(it.provider || it.source || it.offer_type || "");
+          const title = esc(it.title || "");
+          const desc = esc((it.description || "").slice(0, 160));
+          const payload = encodeURIComponent(JSON.stringify(it));
+          return `<article class="discover-card" data-payload="${payload}">
+            <div class="meta">${meta}</div>
+            <h3>${title}</h3>
+            <p>${desc}</p>
+          </article>`;
+        })
+        .join("") || '<p class="muted">Aucun élément pour le moment.</p>';
+
+    grid.querySelectorAll(".discover-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        const it = JSON.parse(decodeURIComponent(card.dataset.payload));
+        if (it.offer_type === "medical" || it.source === "clinicaltrials" || it.source === "pubmed") {
+          openMedicalModal(encodeURIComponent(JSON.stringify(it)));
+          return;
+        }
+        if (it.url) window.open(it.url, "_blank", "noopener");
+      });
+    });
+  } catch (e) {
+    grid.innerHTML = '<p class="muted">Erreur de chargement de l\'espace.</p>';
+  }
+}
+
+async function loadHistory() {
+  const box = $("#historyList");
+  try {
+    const sessions = await api("/api/chat/history?limit=20");
+    box.innerHTML = (sessions || [])
+      .map(
+        (s) =>
+          `<button class="history-item" type="button" data-sid="${esc(s.session_id)}">${esc(s.preview || s.session_id)}</button>`
+      )
+      .join("") || '<p class="muted small" style="padding:8px;">Pas encore d\'historique</p>';
+    box.querySelectorAll(".history-item").forEach((btn) => {
+      btn.addEventListener("click", () => openHistory(btn.dataset.sid));
+    });
+  } catch (_) {
+    box.innerHTML = "";
+  }
+}
+
+async function openHistory(sessionId) {
+  state.sessionId = sessionId;
+  localStorage.setItem("scout_session", sessionId);
+  showView("home");
+  $("#homeLanding").classList.add("hidden");
+  $("#chatThread").classList.remove("hidden");
+  const box = $("#threadMessages");
+  box.innerHTML = "";
+  try {
+    const data = await api(`/api/chat/history/${encodeURIComponent(sessionId)}`);
+    for (const t of data.turns || []) {
+      appendBubble(t.role === "user" ? "user" : "bot", t.content, t.sources || []);
+    }
+  } catch (_) {}
+}
+
+async function ask(raw) {
+  const message = (raw || "").trim();
+  if (!message) return;
+  showView("home");
+  $("#homeLanding").classList.add("hidden");
+  $("#chatThread").classList.remove("hidden");
+  $("#homeInput").value = "";
+  $("#threadInput").value = "";
+
+  appendBubble("user", message);
+  const typing = document.createElement("div");
+  typing.className = "bubble bot typing";
+  typing.textContent = "Recherche et scraping en cours...";
+  $("#threadMessages").appendChild(typing);
+  $("#threadMessages").scrollTop = $("#threadMessages").scrollHeight;
+
+  try {
+    const res = await api("/api/chat", {
+      method: "POST",
+      body: JSON.stringify({ message, session_id: state.sessionId }),
+    });
+    typing.remove();
+    appendBubble("bot", res.reply || "Pas de réponse.", res.sources || res.offers || []);
+    if (res.watch?.watch?.slug) {
+      const slug = res.watch.watch.slug;
+      const link = document.createElement("div");
+      link.className = "bubble bot";
+      link.innerHTML = `<button class="primary" type="button">Ouvrir le dashboard ${esc(res.watch.watch.title)}</button>`;
+      link.querySelector("button").addEventListener("click", () => openWatchDash(slug));
+      $("#threadMessages").appendChild(link);
+    }
+    loadHistory();
+    if (typeof loadWatches === "function") loadWatches();
+  } catch (e) {
+    typing.remove();
+    appendBubble("bot", "Erreur réseau pendant la recherche.");
+  }
+}
+
+function appendBubble(role, content, sources = []) {
+  const box = $("#threadMessages");
+  const el = document.createElement("div");
+  el.className = "bubble " + (role === "user" ? "user" : "bot");
+  let html = role === "user" ? esc(content) : mdToHtml(content);
+  if (sources && sources.length) {
+    html += `<div class="sources-grid">${sources
+      .slice(0, 12)
+      .map((s) => {
+        const title = esc(s.title || "");
+        const url = esc(s.url || "#");
+        const prov = esc(s.provider || s.offer_type || "source");
+        const desc = esc((s.description || "").slice(0, 120));
+        return `<a class="source-card" href="${url}" target="_blank" rel="noopener">
+          <div class="prov">${prov}</div>
+          <div class="ttl">${title}</div>
+          <div class="desc">${desc}</div>
+        </a>`;
+      })
+      .join("")}</div>`;
+  }
+  el.innerHTML = html;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+/* --- Watches / dashboards --- */
+async function loadWatches() {
+  const grid = $("#watchesList");
+  if (!grid) return;
+  try {
+    const list = await api("/api/watches");
+    grid.innerHTML =
+      (list || [])
+        .map((w) => {
+          const meta = `${esc(w.kind)}${w.ticker ? " · " + esc(w.ticker) : ""}`;
+          return `<article class="discover-card" data-wslug="${esc(w.slug)}">
+            <div class="meta">${meta}</div>
+            <h3>${esc(w.title)}</h3>
+            <p>${esc(w.query)}</p>
+            <p class="muted small">MAJ : ${esc(w.last_refreshed_at || "jamais")}</p>
+          </article>`;
+        })
+        .join("") || '<p class="muted">Aucun suivi. Crée-en un ou dis « suis SpaceX » dans la recherche.</p>';
+    grid.querySelectorAll(".discover-card").forEach((card) => {
+      card.addEventListener("click", () => openWatchDash(card.dataset.wslug));
+    });
+  } catch (_) {
+    grid.innerHTML = '<p class="muted">Erreur chargement suivis.</p>';
+  }
+}
+
+async function createWatchFromForm() {
+  const title = ($("#watchTitle")?.value || "").trim();
+  if (!title) return;
+  const body = {
+    title,
+    kind: $("#watchKind")?.value || null,
+    ticker: ($("#watchTicker")?.value || "").trim() || null,
+    refresh: true,
+  };
+  try {
+    const w = await api("/api/watches", { method: "POST", body: JSON.stringify(body) });
+    $("#watchTitle").value = "";
+    $("#watchTicker").value = "";
+    await loadWatches();
+    if (w.slug) openWatchDash(w.slug);
+  } catch (_) {
+    alert("Échec création du suivi");
+  }
+}
+
+async function openWatchDash(slug) {
+  state.currentWatchSlug = slug;
+  showView("watch-dash");
+  document.querySelectorAll(".nav-item").forEach((n) => {
+    n.classList.toggle("active", n.dataset.view === "watches");
+  });
+  await renderWatchDashboard(slug);
+  setupWatchAutoRefresh();
+}
+
+function dedupeChartPoints(rows) {
+  const out = [];
+  let lastT = null;
+  for (const r of rows) {
+    if (!r || r.time == null || Number.isNaN(r.time)) continue;
+    if (lastT != null && r.time <= lastT) continue;
+    out.push(r);
+    lastT = r.time;
+  }
+  return out;
+}
+
+function toChartTime(ts) {
+  const ms = new Date(ts).getTime();
+  if (Number.isNaN(ms)) return null;
+  // Business day string for daily-ish bars improves Lightweight Charts stability
+  return Math.floor(ms / 1000);
+}
+
+async function loadWatchLiveChart() {
+  const ticker = state.currentTicker;
+  const host = $("#watchPriceChart");
+  const empty = $("#watchPriceEmpty");
+  if (!ticker || !host) {
+    empty?.classList.remove("hidden");
+    if (empty) empty.textContent = "Pas de ticker / pas encore de données de prix.";
+    return;
+  }
+  if (empty) {
+    empty.classList.remove("hidden");
+    empty.textContent = "Chargement du graphique…";
+  }
+  const range = $("#watchChartRange")?.value || "3mo";
+  let chart;
+  try {
+    chart = await api(
+      `/api/market/chart?symbol=${encodeURIComponent(ticker)}&range=${encodeURIComponent(range)}&force=true`
+    );
+    if (chart?.detail && !chart?.points) {
+      throw new Error(typeof chart.detail === "string" ? chart.detail : "chart API error");
+    }
+  } catch (e) {
+    console.warn("[chart] fetch", e);
+    if (empty) {
+      empty.textContent = "Erreur lors du chargement du cours — réessaie Actualiser.";
+      empty.classList.remove("hidden");
+    }
+    return;
+  }
+  const points = chart?.points || [];
+  if (!points.length) {
+    if (empty) {
+      empty.textContent = `Aucune donnée de prix pour ${ticker} (source: ${chart?.source || "none"}).`;
+      empty.classList.remove("hidden");
+    }
+    return;
+  }
+
+  const srcEl = $("#watchChartSource");
+  if (srcEl) srcEl.textContent = `· ${chart.source || ""} · ${chart.latency || ""}`;
+  const note = $("#watchMarketNote");
+  if (note && chart.delay_note) note.textContent = chart.delay_note;
+
+  if (window.LightweightCharts) {
+    try {
+      renderLwChart(host, points, chart);
+      empty?.classList.add("hidden");
+      return;
+    } catch (err) {
+      console.warn("[chart] LightweightCharts échec, fallback Chart.js", err);
+    }
+  }
+  try {
+    renderChartJsFallback(host, points, ticker);
+    empty?.classList.add("hidden");
+  } catch (err) {
+    console.warn("[chart] Chart.js fallback échec", err);
+    if (empty) {
+      empty.textContent = "Impossible d'afficher le graphique.";
+      empty.classList.remove("hidden");
+    }
+  }
+}
+
+function renderLwChart(host, points, chart) {
+  if (state.lwChart) {
+    try { state.lwChart.remove(); } catch (_) {}
+    state.lwChart = null;
+    state.lwSeries = null;
+    state.lwSma = null;
+  }
+  host.innerHTML = "";
+  const isDark = state.theme === "dark";
+  const width = Math.max(host.clientWidth || host.parentElement?.clientWidth || 640, 320);
+  state.lwChart = LightweightCharts.createChart(host, {
+    width,
+    height: 280,
+    layout: {
+      background: { color: isDark ? "#292524" : "#FAF7F2" },
+      textColor: isDark ? "#E7E5E4" : "#1C1917",
+    },
+    grid: {
+      vertLines: { color: isDark ? "rgba(168,162,158,.12)" : "rgba(28,25,23,.08)" },
+      horzLines: { color: isDark ? "rgba(168,162,158,.12)" : "rgba(28,25,23,.08)" },
+    },
+    rightPriceScale: { borderVisible: false },
+    timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
+  });
+
+  const mapped = dedupeChartPoints(
+    points
+      .map((p) => {
+        const time = toChartTime(p.ts);
+        if (time == null) return null;
+        return {
+          time,
+          open: Number(p.open ?? p.price),
+          high: Number(p.high ?? p.price),
+          low: Number(p.low ?? p.price),
+          close: Number(p.close ?? p.price),
+          value: Number(p.price),
+        };
+      })
+      .filter(Boolean)
+  );
+  if (!mapped.length) throw new Error("no mapped points");
+
+  const hasOHLC = mapped.every(
+    (p) =>
+      Number.isFinite(p.open) &&
+      Number.isFinite(p.high) &&
+      Number.isFinite(p.low) &&
+      Number.isFinite(p.close) &&
+      p.high >= p.low
+  );
+
+  if (hasOHLC && mapped.length > 2) {
+    state.lwSeries = state.lwChart.addCandlestickSeries({
+      upColor: "#16A34A",
+      downColor: "#DC2626",
+      borderVisible: false,
+      wickUpColor: "#16A34A",
+      wickDownColor: "#DC2626",
+    });
+    state.lwSeries.setData(mapped.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+  } else {
+    state.lwSeries = state.lwChart.addAreaSeries({
+      lineColor: "#D97706",
+      topColor: "rgba(217,119,6,.35)",
+      bottomColor: "rgba(217,119,6,.02)",
+    });
+    state.lwSeries.setData(mapped.map(({ time, value, close }) => ({ time, value: value ?? close })));
+  }
+
+  if (chart.sma20 && chart.sma20.some((x) => x != null)) {
+    state.lwSma = state.lwChart.addLineSeries({ color: "#78716C", lineWidth: 1 });
+    const smaData = [];
+    for (let i = 0; i < points.length; i++) {
+      if (chart.sma20[i] == null) continue;
+      const time = toChartTime(points[i].ts);
+      if (time == null) continue;
+      smaData.push({ time, value: chart.sma20[i] });
+    }
+    state.lwSma.setData(dedupeChartPoints(smaData));
+  }
+  state.lwChart.timeScale().fitContent();
+  // Resize when container gets a real width
+  requestAnimationFrame(() => {
+    if (state.lwChart && host.clientWidth) {
+      state.lwChart.applyOptions({ width: host.clientWidth });
+      state.lwChart.timeScale().fitContent();
+    }
+  });
+}
+
+function renderChartJsFallback(host, points, ticker) {
+  if (state.lwChart) {
+    try { state.lwChart.remove(); } catch (_) {}
+    state.lwChart = null;
+  }
+  host.innerHTML = "";
+  const canvas = document.createElement("canvas");
+  canvas.height = 120;
+  host.appendChild(canvas);
+  if (state.priceChart) {
+    state.priceChart.destroy();
+    state.priceChart = null;
+  }
+  if (!window.Chart) throw new Error("Chart.js missing");
+  state.priceChart = new Chart(canvas.getContext("2d"), {
+    type: "line",
+    data: {
+      labels: points.map((p) => (p.ts || "").slice(0, 16)),
+      datasets: [{
+        label: ticker || "Prix",
+        data: points.map((p) => p.price),
+        borderColor: "#D97706",
+        backgroundColor: "rgba(217,119,6,.15)",
+        fill: true,
+        tension: 0.25,
+        pointRadius: 0,
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: "#A8A29E" }, grid: { color: "rgba(168,162,158,.15)" } },
+        y: { ticks: { color: "#A8A29E" }, grid: { color: "rgba(168,162,158,.15)" } },
+      },
+    },
+  });
+}
+
+function setupWatchAutoRefresh() {
+  if (state.watchRefreshTimer) {
+    clearInterval(state.watchRefreshTimer);
+    state.watchRefreshTimer = null;
+  }
+  stopMarketSSE();
+  const on = $("#watchAutoRefresh")?.checked;
+  if (!on || !state.currentWatchSlug) return;
+  const ms = state.watchAssetClass === "crypto" ? 20 * 1000 : 10 * 60 * 1000;
+  state.watchRefreshTimer = setInterval(() => {
+    if (state.currentWatchSlug && $("#view-watch-dash")?.classList.contains("active")) {
+      if (state.watchAssetClass === "crypto") loadWatchLiveQuote();
+      else refreshCurrentWatch(true);
+    }
+  }, ms);
+  if (state.watchAssetClass === "crypto") startMarketSSE();
+}
+
+function stopMarketSSE() {
+  if (state.marketSSE) {
+    try { state.marketSSE.close(); } catch (_) {}
+    state.marketSSE = null;
+  }
+}
+
+function startMarketSSE() {
+  stopMarketSSE();
+  const ticker = state.currentTicker;
+  if (!ticker || !window.EventSource) return;
+  const es = new EventSource(`/api/market/stream/${encodeURIComponent(ticker)}?interval_sec=3`);
+  state.marketSSE = es;
+  es.onmessage = (ev) => {
+    try {
+      const q = JSON.parse(ev.data);
+      if (q.price != null) {
+        applyLiveQuote(q);
+        if (state.lwSeries && typeof state.lwSeries.update === "function") {
+          const t = Math.floor(Date.now() / 1000);
+          try {
+            // Area series uses value; candle uses close — try both safely
+            state.lwSeries.update({ time: t, value: q.price, close: q.price });
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+  };
+}
+
+async function loadWatchLiveQuote() {
+  const ticker = state.currentTicker;
+  if (!ticker) return;
+  try {
+    const q = await api(`/api/market/quote?symbol=${encodeURIComponent(ticker)}&force=1`);
+    if (q && !q.error) applyLiveQuote(q);
+  } catch (_) {}
+}
+
+function applyLiveQuote(q) {
+  const lastPx = q.price != null ? Number(q.price).toFixed(q.price < 10 ? 4 : 2) : "—";
+  const ch = q.change_pct_24h != null ? ` · 24h ${Number(q.change_pct_24h).toFixed(2)}%` : "";
+  const src = q.source || "?";
+  $("#watchDashMeta").textContent =
+    `${state.watchKind || ""}${state.currentTicker ? " · " + state.currentTicker : ""} · live ${lastPx}${ch} · ${src}`;
+  const note = $("#watchMarketNote");
+  if (note && q.delay_note) note.textContent = q.delay_note;
+  const srcEl = $("#watchChartSource");
+  if (srcEl) srcEl.textContent = `· ${src} · ${q.latency || ""}`;
+}
+
+async function refreshCurrentWatch(silent = false) {
+  if (!state.currentWatchSlug) return;
+  if (!silent) $("#watchDashMeta").textContent = "Actualisation...";
+  await api(`/api/watches/${encodeURIComponent(state.currentWatchSlug)}/refresh`, {
+    method: "POST",
+    body: "{}",
+  });
+  await renderWatchDashboard(state.currentWatchSlug);
+}
+
+async function analyzeCurrentWatch(kind) {
+  if (!state.currentWatchSlug) return;
+  $("#watchInsights").textContent = "Génération de l'insight...";
+  const res = await api(`/api/watches/${encodeURIComponent(state.currentWatchSlug)}/analyze`, {
+    method: "POST",
+    body: JSON.stringify({ kind }),
+  });
+  const content = res.insight?.content || "Pas d'insight.";
+  $("#watchInsights").innerHTML = mdToHtml(content);
+  if (res.dashboard) paintWatchDashboard(res.dashboard);
+}
+
+async function renderWatchDashboard(slug) {
+  try {
+    const dash = await api(`/api/watches/${encodeURIComponent(slug)}`);
+    paintWatchDashboard(dash);
+  } catch (_) {
+    $("#watchDashTitle").textContent = "Erreur";
+  }
+}
+
+function paintWatchDashboard(dash) {
+  const w = dash.watch || {};
+  const stats = dash.stats || {};
+  const market = dash.market || {};
+  const quote = market.quote || {};
+  state.currentTicker = w.ticker || null;
+  state.watchKind = w.kind || "";
+  state.watchAssetClass = market.asset_class || (w.kind === "crypto" ? "crypto" : "equity");
+
+  $("#watchDashTitle").textContent = w.title || "Dashboard";
+  const lastPx = (quote.price ?? stats.last_price);
+  const lastStr = lastPx != null ? Number(lastPx).toFixed(Number(lastPx) < 10 ? 4 : 2) : "—";
+  const src = quote.source || market.price_source || "market";
+  const lat = quote.latency || market.latency || "";
+  $("#watchDashMeta").textContent =
+    `${w.kind || ""}${w.ticker ? " · " + w.ticker : ""} · cotation ${lastStr} · ${src}${lat ? " (" + lat + ")" : ""} · refresh ${w.last_refreshed_at || "n/a"}`;
+  $("#watchDashDisclaimer").textContent = dash.disclaimer || "";
+  const note = $("#watchMarketNote");
+  if (note) {
+    note.textContent = quote.delay_note || market.delay_note ||
+      "Yahoo (~15 min actions) · Binance near-realtime (crypto) · pas de tick-by-tick actions US gratuit.";
+  }
+
+  $("#watchKpis").innerHTML = [
+    kpi(stats.events_count ?? 0, "Événements"),
+    kpi(stats.prices_count ?? 0, "Points histo"),
+    kpi(lastStr, "Dernier cours"),
+    kpi(
+      quote.change_pct_24h != null
+        ? Number(quote.change_pct_24h).toFixed(2) + "%"
+        : stats.price_change_pct != null
+          ? stats.price_change_pct + "%"
+          : "—",
+      quote.change_pct_24h != null ? "Var. 24h" : "Var. période"
+    ),
+  ].join("");
+
+  const tbody = $("#watchEventsTable tbody");
+  tbody.innerHTML = (dash.events || [])
+    .map((e) => {
+      const title = e.url
+        ? `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>`
+        : esc(e.title);
+      return `<tr>
+        <td>${esc(e.event_type || "news")}</td>
+        <td>${title}<div class="muted small">${esc((e.summary || "").slice(0, 120))}</div></td>
+        <td>${esc(e.provider || "")}</td>
+        <td>${esc((e.published_at || e.created_at || "").slice(0, 25))}</td>
+      </tr>`;
+    })
+    .join("") || `<tr><td colspan="4" class="muted">Aucun événement</td></tr>`;
+
+  const insights = dash.insights || {};
+  const prefer = insights.analysis || insights.summary || insights.trading;
+  if (prefer?.content) $("#watchInsights").innerHTML = mdToHtml(prefer.content);
+
+  // Prix : TradingView Lightweight Charts (live API) ; fallback points stockés
+  if (w.ticker) {
+    loadWatchLiveChart();
+    setupWatchAutoRefresh();
+  } else {
+    const empty = $("#watchPriceEmpty");
+    empty?.classList.remove("hidden");
+    const host = $("#watchPriceChart");
+    if (host) host.innerHTML = "";
+    stopMarketSSE();
+  }
+
+  const types = dash.event_types || {};
+  if (window.Chart) {
+    const ctx2 = $("#watchTypeChart").getContext("2d");
+    if (state.typeChart) state.typeChart.destroy();
+    state.typeChart = new Chart(ctx2, {
+      type: "doughnut",
+      data: {
+        labels: Object.keys(types),
+        datasets: [{
+          data: Object.values(types),
+          backgroundColor: ["#D97706", "#F59E0B", "#B45309", "#78716C", "#A8A29E"],
+        }],
+      },
+      options: { plugins: { legend: { position: "bottom", labels: { color: "#A8A29E" } } } },
+    });
+  }
+}
+
+function kpi(v, label) {
+  return `<div class="kpi"><b>${esc(String(v))}</b><span>${esc(label)}</span></div>`;
+}
+
+/* --- tools legacy --- */
+async function loadStats() {
+  try {
+    const s = await api("/api/stats");
+    $("#stats").innerHTML = [
+      stat(s.total, "Offres"),
+      stat((s.by_tier || {}).verified || 0, "Vérifiées"),
+      stat(s.favorites || 0, "Favoris"),
+      stat(s.runs || 0, "Runs"),
+    ].join("");
+    fillSelect("#fNetwork", Object.keys(s.by_network || {}));
+    fillSelect("#fType", Object.keys(s.by_type || {}));
+  } catch (_) {}
+}
+const stat = (n, l) => `<div class="stat"><b>${n}</b><span>${l}</span></div>`;
+function fillSelect(sel, keys) {
+  const el = $(sel);
+  if (!el) return;
+  const cur = el.value;
+  el.innerHTML = `<option value="">Tous</option>` + keys.map((k) => `<option value="${k}">${k}</option>`).join("");
+  el.value = cur;
+}
+
+async function loadOffers() {
+  try {
+    state.offers = await api("/api/offers?limit=200");
+    renderOffers();
+  } catch (_) {}
+}
+
+function renderOffers() {
+  const list = $("#offerList");
+  if (!list) return;
+  const q = ($("#search")?.value || "").toLowerCase();
+  const tier = $("#fTier")?.value || "";
+  const network = $("#fNetwork")?.value || "";
+  const type = $("#fType")?.value || "";
+  const filtered = state.offers.filter((o) => {
+    if (tier && o.credibility_tier !== tier) return false;
+    if (network && o.network !== network) return false;
+    if (type && o.offer_type !== type) return false;
+    if (q && !(o.title || "").toLowerCase().includes(q) && !(o.description || "").toLowerCase().includes(q)) return false;
+    return true;
+  });
+  list.innerHTML = filtered
+    .slice(0, 60)
+    .map(
+      (o) => `<div class="card"><a href="${esc(o.url)}" target="_blank" rel="noopener"><strong>${esc(o.title)}</strong></a>
+      <div class="muted small">${esc(o.provider)} · ${esc(o.offer_type)} · ${esc(o.credibility_tier || "")}</div>
+      <p class="muted small">${esc((o.description || "").slice(0, 140))}</p></div>`
+    )
+    .join("");
+}
+
+async function loadAgents() {
+  try {
+    const a = await api("/api/agents");
+    state.agents = Object.fromEntries((a || []).map((k) => [k, { status: "idle" }]));
+    $("#agentStatus").innerHTML = Object.keys(state.agents)
+      .map((k) => `<div class="agent"><span>${esc(k)}</span><span class="muted">idle</span></div>`)
+      .join("");
+  } catch (_) {}
+}
+
+async function runAll() {
+  $("#liveDot")?.classList.add("running");
+  try {
+    await api("/api/run", { method: "POST", body: "{}" });
+  } catch (_) {}
+  setTimeout(() => {
+    $("#liveDot")?.classList.remove("running");
+    $("#liveDot")?.classList.add("done");
+    loadOffers();
+    loadStats();
+  }, 2000);
+}
+
+function connectSSE() {
+  try {
+    const es = new EventSource("/api/events");
+    es.onmessage = () => {};
+  } catch (_) {}
+}
+
+/* --- medical compact --- */
+async function loadMedicalStats() {
+  try {
+    const s = await api("/api/medical/stats");
+    $("#medStats").textContent = `${s.total_records || 0} dossiers · backend ${s.backend || "?"}`;
+  } catch (_) {}
+}
+
+async function loadMedicalRecords() {
+  const grid = $("#medGrid");
+  if (!grid) return;
+  grid.innerHTML = '<p class="muted">Chargement...</p>';
+  const search = ($("#medSearch")?.value || "").trim();
+  try {
+    let url = "/api/medical/search";
+    if (search) url += `?q=${encodeURIComponent(search)}`;
+    const res = await api(url);
+    const records = res.results || res;
+    grid.innerHTML =
+      records
+        .map((r) => {
+          const payload = encodeURIComponent(JSON.stringify(r));
+          return `<article class="discover-card" onclick="openMedicalModal('${payload}')">
+            <div class="meta">${esc(r.source || "medical")}</div>
+            <h3>${esc(r.title)}</h3>
+            <p>${esc((r.ai_cheat_sheet || r.summary || "").slice(0, 140))}</p>
+          </article>`;
+        })
+        .join("") || '<p class="muted">Aucun résultat.</p>';
+  } catch (_) {
+    grid.innerHTML = '<p class="muted">Erreur médicale.</p>';
+  }
+}
+
+let currentRecord = null;
+window.openMedicalModal = function (encoded) {
+  const record = JSON.parse(decodeURIComponent(encoded));
+  currentRecord = record;
+  $("#medicalModal").classList.remove("hidden");
+  $("#medTitle").textContent = record.title || "";
+  $("#medStatusBadge").innerHTML = `<span class="muted">${esc(record.status || "")} · ${esc(record.nct_id || record.id || "")}</span>`;
+  $("#medCheatSheetContent").innerHTML = mdToHtml(record.ai_cheat_sheet || record.summary || "Pas de fiche.");
+  $("#medLabName").textContent = record.sponsor || "";
+  $("#medCityCountry").textContent = `${record.city || ""} ${record.country || ""}`;
+  $("#medTrialUrl").innerHTML = record.url
+    ? `<a href="${esc(record.url)}" target="_blank" rel="noopener">Source</a>`
+    : "";
+};
+
+async function generateMedicalEmail() {
+  if (!currentRecord?.id) return;
+  const caseSummary = ($("#medCaseSummary")?.value || "").trim() || "Cas anonymisé";
+  try {
+    const res = await api(`/api/medical/${encodeURIComponent(currentRecord.id)}/contact-email`, {
+      method: "POST",
+      body: JSON.stringify({ case_summary: caseSummary }),
+    });
+    if (res.mailto) window.open(res.mailto, "_blank");
+  } catch (_) {}
+}
+
+/* --- Profil --- */
+async function loadProfile() {
+  try {
+    const p = await api("/api/profile");
+    $("#pfName").value = p.display_name || "";
+    $("#pfSkills").value = (p.skills || []).join(", ");
+    $("#pfInterests").value = (p.interests || []).join(", ");
+    $("#pfCity").value = p.city || "";
+    $("#pfCountry").value = p.country || "";
+    $("#pfCompanies").value = (p.preferred_companies || []).join(", ");
+    $("#pfTrading").value = p.trading_level || "beginner";
+  } catch (_) {}
+}
+
+async function saveProfile() {
+  const body = {
+    display_name: $("#pfName").value.trim(),
+    skills: $("#pfSkills").value,
+    interests: $("#pfInterests").value,
+    city: $("#pfCity").value.trim(),
+    country: $("#pfCountry").value.trim(),
+    preferred_companies: $("#pfCompanies").value,
+    trading_level: $("#pfTrading").value,
+  };
+  try {
+    await api("/api/profile", { method: "PUT", body: JSON.stringify(body) });
+    $("#profileSaved").textContent = "Profil enregistré.";
+  } catch (_) {
+    $("#profileSaved").textContent = "Échec enregistrement.";
+  }
+}
+
+/* --- Opportunités --- */
+async function loadOpportunitiesView() {
+  await loadOppDigest();
+  await loadOppGrid();
+}
+
+async function loadOppDigest() {
+  const box = $("#oppDigest");
+  if (!box) return;
+  box.textContent = "Génération du digest…";
+  try {
+    const d = await api("/api/opportunities/digest");
+    box.innerHTML = mdToHtml(d.message || "Pas de digest.");
+  } catch (_) {
+    box.textContent = "Impossible de charger le digest.";
+  }
+}
+
+async function loadOppGrid() {
+  const grid = $("#oppGrid");
+  if (!grid) return;
+  grid.innerHTML = '<p class="muted">Chargement…</p>';
+  const q = ($("#oppSearch")?.value || "").trim();
+  const city = ($("#oppCity")?.value || "").trim();
+  const country = ($("#oppCountry")?.value || "").trim();
+  const company = ($("#oppCompany")?.value || "").trim();
+  let url;
+  if (state.oppTab === "feed" && !q && !city && !country && !company) {
+    url = "/api/opportunities/feed?limit=24";
+  } else {
+    const params = new URLSearchParams();
+    if (state.oppTab && state.oppTab !== "feed") params.set("type", state.oppTab);
+    if (q) params.set("q", q);
+    if (city) params.set("city", city);
+    if (country) params.set("country", country);
+    if (company) params.set("company", company);
+    params.set("limit", "40");
+    url = "/api/opportunities?" + params.toString();
+  }
+  try {
+    const data = await api(url);
+    const items = data.items || [];
+    grid.innerHTML =
+      items
+        .map((it) => {
+          const meta = `${esc(it.offer_type || "")} · score ${esc(String(it.match_score ?? ""))}`;
+          return `<article class="discover-card" data-url="${esc(it.url || "")}">
+            <div class="meta">${meta}</div>
+            <h3>${esc(it.title || "")}</h3>
+            <p>${esc((it.description || "").slice(0, 160))}</p>
+            <p class="muted small">${esc(it.provider || it.source || "")}</p>
+          </article>`;
+        })
+        .join("") || '<p class="muted">Aucune opportunité pour ces filtres.</p>';
+    grid.querySelectorAll(".discover-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        if (card.dataset.url) window.open(card.dataset.url, "_blank", "noopener");
+      });
+    });
+  } catch (_) {
+    grid.innerHTML = '<p class="muted">Erreur de chargement.</p>';
+  }
+}
+
+/* --- Learn Trading --- */
+function applyLearnUiLevel(level) {
+  const lv = level || "beginner";
+  $("#learnLevelBadge").textContent = "Niveau: " + lv;
+  $("#learnLevelSelect").value = lv;
+  const showAdv = lv !== "beginner";
+  $("#learnOrderTypeWrap")?.classList.toggle("hidden", !showAdv);
+  if (!showAdv) {
+    $("#learnOrderType").value = "market";
+    $("#learnLimitWrap")?.classList.add("hidden");
+  }
+  const gloss = {
+    beginner: "Glossaire : Market = exécution au dernier prix scrapé. Cash virtuel uniquement.",
+    intermediate: "Ordres limites : exécutés si le cours Yahoo est favorable. Suis ton P&L.",
+    pro: "Mode dense : multi-positions, journal, progression débloquée après trades.",
+  };
+  $("#learnGlossary").textContent = gloss[lv] || gloss.beginner;
+}
+
+async function loadLearnChart() {
+  const host = $("#learnChart");
+  if (!host) return;
+  const ticker = ($("#learnSymbol")?.value || "GOOGL").trim().toUpperCase();
+  if (!ticker) return;
+  const range = $("#learnChartRange")?.value || "1mo";
+  host.innerHTML = `<p class="muted small">Chargement du cours de ${esc(ticker)}…</p>`;
+  let chart;
+  try {
+    chart = await api(
+      `/api/market/chart?symbol=${encodeURIComponent(ticker)}&range=${encodeURIComponent(range)}&force=true`
+    );
+    if (chart?.detail && !chart?.points) {
+      throw new Error(typeof chart.detail === "string" ? chart.detail : "chart API error");
+    }
+  } catch (e) {
+    host.innerHTML = `<p class="muted small">Erreur lors du chargement du cours de ${esc(ticker)} — réessaie Actualiser.</p>`;
+    return;
+  }
+  const points = chart?.points || [];
+  if (!points.length) {
+    host.innerHTML = `<p class="muted small">Aucune donnée de prix pour ${esc(ticker)} (source: ${esc(chart?.source || "none")}).</p>`;
+    return;
+  }
+  const srcEl = $("#learnChartSource");
+  if (srcEl) srcEl.textContent = `· ${chart.source || ""} · ${chart.latency || ""} · ${chart.delay_note || ""}`;
+  if (window.LightweightCharts) {
+    try {
+      renderLwChart(host, points, chart);
+      return;
+    } catch (err) {
+      console.warn("[learn chart] LightweightCharts échec, fallback Chart.js", err);
+    }
+  }
+  try {
+    renderChartJsFallback(host, points, ticker);
+  } catch (err) {
+    host.innerHTML = `<p class="muted small">Impossible d'afficher le graphique.</p>`;
+  }
+}
+
+async function loadLearn() {
+  try {
+    const p = await api("/api/learn/portfolio");
+    paintLearn(p);
+  } catch (_) {}
+  loadLearnChart();
+}
+
+function paintLearn(p) {
+  const acc = p.account || {};
+  applyLearnUiLevel(acc.unlocked_level || "beginner");
+  $("#learnKpis").innerHTML = [
+    kpi(p.cash != null ? p.cash.toFixed(2) : "—", "Cash virtuel"),
+    kpi(p.equity != null ? p.equity.toFixed(2) : "—", "Equity"),
+    kpi(acc.trades_count ?? 0, "Trades"),
+    kpi(acc.unlocked_level || "—", "Niveau"),
+  ].join("");
+  const tbody = $("#learnPosTable tbody");
+  tbody.innerHTML =
+    (p.positions || [])
+      .map(
+        (x) => `<tr>
+        <td>${esc(x.symbol)}</td>
+        <td>${esc(String(x.qty))}</td>
+        <td>${esc(Number(x.avg_price).toFixed(2))}</td>
+        <td>${esc(x.last_price != null ? Number(x.last_price).toFixed(2) : "—")}</td>
+        <td>${esc(x.pnl != null ? Number(x.pnl).toFixed(2) : "—")}</td>
+      </tr>`
+      )
+      .join("") || `<tr><td colspan="5" class="muted">Aucune position</td></tr>`;
+  const ft = $("#learnFillsTable tbody");
+  ft.innerHTML =
+    (p.fills || [])
+      .map(
+        (f) => `<tr>
+        <td>${esc(f.symbol)}</td>
+        <td>${esc(f.side)}</td>
+        <td>${esc(String(f.qty))}</td>
+        <td>${esc(Number(f.price).toFixed(2))}</td>
+        <td>${esc((f.created_at || "").slice(0, 19))}</td>
+      </tr>`
+      )
+      .join("") || `<tr><td colspan="5" class="muted">Aucun fill</td></tr>`;
+}
+
+async function placeLearnOrder() {
+  const body = {
+    symbol: $("#learnSymbol").value.trim(),
+    side: $("#learnSide").value,
+    qty: Number($("#learnQty").value),
+    order_type: $("#learnOrderType")?.value || "market",
+    limit_price: $("#learnLimit").value ? Number($("#learnLimit").value) : null,
+  };
+  const res = await api("/api/learn/orders", { method: "POST", body: JSON.stringify(body) });
+  if (res.error) {
+    $("#learnTradeMsg").textContent = res.error;
+    return;
+  }
+  $("#learnTradeMsg").textContent = `Ordre ${res.status} @ ${res.fill_price ?? "n/a"}`;
+  if (res.portfolio) paintLearn(res.portfolio);
+  else loadLearn();
+  // Recharger le cours (le P&L dépend du dernier prix)
+  loadLearnChart();
+}
+
+async function askLearn() {
+  const question = ($("#learnAsk").value || "").trim();
+  if (!question) return;
+  $("#learnAnswer").textContent = "…";
+  const res = await api("/api/learn/explain", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
+  $("#learnAnswer").innerHTML = mdToHtml((res.answer || "") + "\n\n_" + (res.disclaimer || "") + "_");
+}
+
+async function setLearnLevel() {
+  const level = $("#learnLevelSelect").value;
+  await api("/api/learn/level", { method: "POST", body: JSON.stringify({ level }) });
+  loadLearn();
+}
+
+async function resetLearn() {
+  if (!confirm("Réinitialiser le compte papier ?")) return;
+  const p = await api("/api/learn/reset", { method: "POST", body: "{}" });
+  paintLearn(p);
+}
+
+document.addEventListener("DOMContentLoaded", init);
