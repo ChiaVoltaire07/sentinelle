@@ -149,7 +149,8 @@ def create_app(store: Store = None) -> FastAPI:
     # CORS — permissif en dev, restrictif en prod
     is_prod = os.getenv("PYTHON_ENV") == "production"
     origins = ["*"] if not is_prod else [
-        os.getenv("CORS_ORIGIN", "https://scout.onrender.com"),
+        os.getenv("CORS_ORIGIN", "https://sentinelle.onrender.com"),
+        "https://sentinelle.onrender.com",
     ]
     app.add_middleware(
         CORSMiddleware,
@@ -162,10 +163,16 @@ def create_app(store: Store = None) -> FastAPI:
     @app.on_event("startup")
     async def startup_event():
         mode = "PRODUCTION" if is_prod else "DEVELOPMENT"
-        log.info("Scout v3.0 démarré en mode %s", mode)
+        log.info("Sentinelle v3.0 démarré en mode %s", mode)
         asyncio.create_task(periodic_scraping_task(app.state.store))
 
+    @app.get("/health")
+    @app.head("/health")
+    async def top_health():
+        return {"status": "ok", "service": "sentinelle"}
+
     @app.get("/")
+    @app.head("/")
     async def index():
         return FileResponse(str(STATIC_DIR / "index.html"))
 

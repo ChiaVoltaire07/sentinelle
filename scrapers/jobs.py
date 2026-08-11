@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import logging
-from typing import List
-from bs4 import BeautifulSoup
+import warnings
+from typing import List, Optional
+import urllib.parse
+
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 from models import Offer
 from scrapers.base import BaseScraper
