@@ -1,20 +1,20 @@
 """Serveur FastAPI : API REST + SSE + sert la PWA (statique)."""
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
-import os
 
+from bot.orchestrator import Orchestrator
 from bot.store import Store
 from web.api import create_router
-
-import asyncio
-import logging
-from bot.orchestrator import Orchestrator
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 log = logging.getLogger("server")
