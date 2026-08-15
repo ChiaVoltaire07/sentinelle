@@ -1,4 +1,4 @@
-const CACHE = "scout-hub-v3";
+const CACHE = "sentinelle-hub-v3";
 const SHELL = [
   "/",
   "/static/app.css",
@@ -53,3 +53,41 @@ self.addEventListener("fetch", (e) => {
       .catch(() => caches.match(req).then((c) => c || new Response("Offline", { status: 503 })))
   );
 });
+
+/* ---- Web Push Notifications ---- */
+self.addEventListener("push", (event) => {
+  let data = { title: "Sentinelle Alerte", body: "Nouvelle opportunité ou mise à jour de veille détectée.", url: "/" };
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Sentinelle", {
+      body: data.body,
+      icon: "/static/icons/icon.svg",
+      badge: "/static/icons/icon.svg",
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const urlToOpen = event.notification.data?.url || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
+      for (let client of windowClients) {
+        if (client.url.includes(self.origin) && "focus" in client) {
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(urlToOpen);
+      }
+    })
+  );
+});
+

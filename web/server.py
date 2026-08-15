@@ -169,7 +169,20 @@ def create_app(store: Store = None) -> FastAPI:
     @app.get("/health")
     @app.head("/health")
     async def top_health():
-        return {"status": "ok", "service": "sentinelle"}
+        stats = {}
+        try:
+            stats = app.state.store.get_stats()
+        except Exception as e:
+            stats = {"error": str(e)}
+        return {
+            "status": "ok",
+            "service": "sentinelle",
+            "version": "3.0.0",
+            "environment": "production" if is_prod else "development",
+            "database": stats.get("backend", "unknown"),
+            "total_offers": stats.get("total", 0),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
 
     @app.get("/")
     @app.head("/")

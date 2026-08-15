@@ -66,6 +66,9 @@ class TestWatchApi(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_create_list_get(self):
+        from bot.auth import create_token
+        token = create_token({"sub": "tester@sentinelle.ai", "uid": "t1"})
+        headers = {"Authorization": f"Bearer {token}"}
         with mock.patch("bot.watch_engine.WatchNewsScraper.search", return_value=[
             {"title": "News", "url": "https://n.example/1", "provider": "X", "summary": "s", "event_type": "news", "published_at": None}
         ]):
@@ -73,7 +76,7 @@ class TestWatchApi(unittest.TestCase):
                 {"ts": "2026-01-01T00:00:00+00:00", "price": 10.0, "volume": 100},
                 {"ts": "2026-01-02T00:00:00+00:00", "price": 12.0, "volume": 100},
             ]):
-                r = self.client.post("/api/watches", json={"title": "Google", "refresh": True})
+                r = self.client.post("/api/watches", json={"title": "Google", "refresh": True}, headers=headers)
                 self.assertEqual(r.status_code, 200)
                 slug = r.json()["slug"]
                 lst = self.client.get("/api/watches")

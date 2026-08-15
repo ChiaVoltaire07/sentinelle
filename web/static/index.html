@@ -78,17 +78,105 @@
     <!-- HOME / CHAT -->
     <section id="view-home" class="view active">
       <div id="homeLanding" class="home-landing">
-        <p class="eyebrow">Recherche</p>
-        <h1 class="home-title">Que voulez-vous savoir&nbsp;?</h1>
+        <div class="landing-badge">
+          <span class="pulse-dot"></span>
+          <span>Sentinelle Hub — Intelligence & Veille Temps Réel</span>
+        </div>
+        <h1 class="home-title">L'intelligence temps réel,<br>ancrée sur les faits.</h1>
+        <p class="landing-subtitle">
+          Recherche IA sourcée par scraping continu, veille clinique pour praticiens africains, et analyse de marché en direct. Zéro hallucination, 100% vérifié.
+        </p>
+        
         <form id="homeForm" class="ask-box" onsubmit="event.preventDefault();">
-          <textarea id="homeInput" rows="2" placeholder="Demandez ce que vous voulez..." autocomplete="off"></textarea>
+          <textarea id="homeInput" rows="2" placeholder="Posez une question ou demandez un suivi (ex: « essais cliniques paludisme », « cours BTC »)..." autocomplete="off"></textarea>
           <div class="ask-toolbar">
-            <span class="muted small">Sources live · suivis · crypto · géo · prédictions · santé</span>
+            <span class="muted small">🔍 Sources live · 🏥 Médical B2B · 📈 Crypto & Actions · 🌍 Opportunités</span>
             <button type="submit" class="primary ask-send">Rechercher</button>
           </div>
         </form>
+        
         <div class="space-chips" id="spaceChips"></div>
-        <p class="muted small" style="margin-top:18px;">Ex. « suis Google », « suis Chine Taïwan », « suis la guerre en Iran »</p>
+        <div class="landing-examples">
+          <span class="muted small">Suggestions rapides :</span>
+          <button type="button" class="chip-example" onclick="quickQuery('Dernières offres IA et crédits cloud gratuits')">🎁 Offres IA gratuites</button>
+          <button type="button" class="chip-example" onclick="quickQuery('Essais cliniques paludisme et drépanocytose en Afrique')">🏥 Essais cliniques Afrique</button>
+          <button type="button" class="chip-example" onclick="quickQuery('Cours et analyse technique Bitcoin Ethereum')">📈 Marché Crypto Live</button>
+          <button type="button" class="chip-example" onclick="quickQuery('suis SpaceX et Starlink')">🚀 Suivi SpaceX</button>
+        </div>
+
+        <!-- 3 Piliers de valeur -->
+        <div class="landing-pillars">
+          <div class="pillar-card" onclick="showView('home'); $('#homeInput').focus();">
+            <div class="pillar-icon">🔍</div>
+            <div class="pillar-tag">Perplexity-Style</div>
+            <h3>Recherche Ancrée</h3>
+            <p>Synthèse IA stricte alimentée par le web scraping live. Chaque affirmation est sourcée avec un lien et un score de crédibilité.</p>
+            <span class="pillar-link">Poser une question →</span>
+          </div>
+
+          <div class="pillar-card" onclick="showView('medical-pro')">
+            <div class="pillar-icon">🏥</div>
+            <div class="pillar-tag">B2B Santé</div>
+            <h3>Portail Clinique & Plantes</h3>
+            <p>Base d'essais cliniques africains, articles PubMed indexés et pharmacologie inversée croisant savoir traditionnel et preuves modernes.</p>
+            <span class="pillar-link">Consulter le portail pro →</span>
+          </div>
+
+          <div class="pillar-card" onclick="showView('learn')">
+            <div class="pillar-icon">📈</div>
+            <div class="pillar-tag">Temps Réel</div>
+            <h3>Simulateur de Marché</h3>
+            <p>Flux SSE en direct depuis Binance et Yahoo Finance. Entraînez-vous sans risque avec le portefeuille paper trading et les insights IA.</p>
+            <span class="pillar-link">Ouvrir le simulateur →</span>
+          </div>
+        </div>
+
+        <!-- Métriques / KPI Bar -->
+        <div class="landing-stats">
+          <div class="stat-item">
+            <span class="stat-num">+10k</span>
+            <span class="stat-label">Sources indexées</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num">100%</span>
+            <span class="stat-label">Réponses vérifiées</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num">24/7</span>
+            <span class="stat-label">Veille autonome</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-num">&lt; 3s</span>
+            <span class="stat-label">Flux temps réel</span>
+          </div>
+        </div>
+
+        <!-- CTA Inscription -->
+        <div class="landing-cta-box">
+          <div class="cta-content">
+            <h3>Passez à la veille active avec Sentinelle</h3>
+            <p class="muted">Créez votre compte gratuit en 1 clic pour enregistrer vos alertes, vos favoris et vos dashboards de suivi.</p>
+          </div>
+          <button class="primary btn-cta-login" onclick="$('#loginModal')?.classList.remove('hidden')">
+            🚀 Se connecter / S'inscrire
+          </button>
+        </div>
+
+        <!-- Footer -->
+        <footer class="landing-footer">
+          <p class="disclaimer show">
+            ⚠️ <strong>Avertissement :</strong> Les informations médicales et financières fournies par Sentinelle sont délivrées à titre indicatif et informatif. Elles ne constituent ni un diagnostic médical, ni un conseil financier.
+          </p>
+          <div class="footer-links">
+            <span>© 2026 Sentinelle — Veille & Recherche Intelligente</span>
+            <span>·</span>
+            <a href="#" onclick="showView('medical-pro')">Santé B2B</a>
+            <span>·</span>
+            <a href="#" onclick="showView('watches')">Mes suivis</a>
+            <span>·</span>
+            <a href="#" onclick="showView('learn')">Trading</a>
+          </div>
+        </footer>
       </div>
 
       <div id="chatThread" class="chat-thread hidden">
@@ -365,37 +453,80 @@
       </div>
     </section>
 
-    <!-- MEDICAL PRO (compact entry) -->
+    <!-- MEDICAL PRO -->
     <section id="view-medical-pro" class="view">
       <div class="panel">
-        <h2>Portail clinique B2B</h2>
-        <p class="muted">Essais cliniques, PubMed, pharmacopée — accès pro.</p>
-        <div class="med-search-row">
-          <input type="text" id="medSearch" placeholder="Pathologie (ex: malaria)...">
+        <div class="space-header">
+          <h2>🏥 Portail Clinique B2B & Pharmacopée Africaine</h2>
+          <p class="muted">Essais cliniques PubMed/ClinicalTrials géolocalisés, synthèses IA et pharmacologie inversée des plantes médicinales traditionnelles.</p>
+        </div>
+
+        <div class="med-search-toolbar">
+          <input type="text" id="medSearch" placeholder="Rechercher une pathologie (ex: paludisme, drépanocytose, diabète)...">
+          <select id="medFilterCountry">
+            <option value="">🌍 Tous les pays</option>
+            <option value="Cameroon">🇨🇲 Cameroun</option>
+            <option value="Senegal">🇸🇳 Sénégal</option>
+            <option value="Ivory Coast">🇨🇮 Côte d'Ivoire</option>
+            <option value="Democratic Republic of the Congo">🇨🇩 RDC</option>
+            <option value="Nigeria">🇳🇬 Nigéria</option>
+            <option value="Kenya">🇰🇪 Kenya</option>
+            <option value="South Africa">🇿🇦 Afrique du Sud</option>
+          </select>
+          <select id="medFilterPhase">
+            <option value="">🔬 Toutes les phases</option>
+            <option value="Phase 1">Phase 1 (Tolérance)</option>
+            <option value="Phase 2">Phase 2 (Efficacité)</option>
+            <option value="Phase 3">Phase 3 (Grande échelle)</option>
+            <option value="Phase 4">Phase 4 (Post-AMM)</option>
+          </select>
+          <select id="medFilterStatus">
+            <option value="">📋 Tous les statuts</option>
+            <option value="RECRUITING">Recrutement actif</option>
+            <option value="COMPLETED">Terminé</option>
+            <option value="ACTIVE_NOT_RECRUITING">En cours</option>
+          </select>
           <button id="btnMedSearch" class="primary" type="button">Rechercher</button>
         </div>
-        <div id="medStats" class="muted" style="margin:8px 0;"></div>
+
+        <div class="tabs" style="margin: 16px 0;">
+          <button class="tab active" id="tabMedTrials" type="button">🔬 Essais Cliniques & Études</button>
+          <button class="tab" id="tabMedPlants" type="button">🌿 Pharmacopée & Plantes Médicinales</button>
+        </div>
+
+        <div id="medStats" class="muted small" style="margin:8px 0;"></div>
         <div id="medGrid" class="discover-grid"></div>
+        <div id="medPlantsGrid" class="discover-grid hidden"></div>
       </div>
     </section>
   </div>
 </div>
 
-<!-- Medical modal (reused) -->
+<!-- Medical modal with Print / PDF export -->
 <div id="medicalModal" class="modal hidden">
-  <div class="modal-card cheat-sheet-card">
-    <button class="close" id="medClose" type="button">✕</button>
-    <h3 id="medTitle"></h3>
-    <div id="medStatusBadge"></div>
+  <div class="modal-card cheat-sheet-card printable-card">
+    <button class="close no-print" id="medClose" type="button">✕</button>
+    <div class="printable-header">
+      <span class="badge-brand">🛡️ Sentinelle Clinique Pro</span>
+      <h3 id="medTitle"></h3>
+      <div id="medStatusBadge"></div>
+    </div>
     <div class="cheat-sheet-body">
-      <h4>Fiche synthétique</h4>
+      <h4>Fiche synthétique médicale</h4>
       <div id="medCheatSheetContent"></div>
     </div>
-    <p id="medLabName"></p>
-    <p id="medCityCountry" class="muted"></p>
-    <p id="medTrialUrl"></p>
-    <textarea id="medCaseSummary" rows="2" placeholder="Cas anonymisé..."></textarea>
-    <button id="btnGenerateMedicalEmail" class="primary" type="button" style="width:100%;margin-top:8px;">Mise en relation</button>
+    <div class="med-details-meta">
+      <p id="medLabName"></p>
+      <p id="medCityCountry" class="muted"></p>
+      <p id="medTrialUrl"></p>
+    </div>
+    <div class="no-print" style="margin-top: 14px; display: flex; gap: 8px;">
+      <button class="btn" type="button" onclick="window.print()" style="flex:1;">🖨️ Imprimer / Exporter PDF</button>
+    </div>
+    <div class="no-print" style="margin-top: 12px;">
+      <textarea id="medCaseSummary" rows="2" placeholder="Cas anonymisé pour mise en relation avec le centre investigateurs..."></textarea>
+      <button id="btnGenerateMedicalEmail" class="primary" type="button" style="width:100%;margin-top:8px;">📧 Contacter le centre</button>
+    </div>
   </div>
 </div>
 

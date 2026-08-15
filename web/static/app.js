@@ -88,6 +88,16 @@ function showView(name) {
   });
   $("#sidebar")?.classList.remove("open");
 }
+window.showView = showView;
+
+window.quickQuery = function(text) {
+  showView("home");
+  const input = $("#homeInput");
+  if (input) {
+    input.value = text;
+    $("#homeForm")?.dispatchEvent(new Event("submit", { cancelable: true }));
+  }
+};
 
 // --- Firebase Auth helpers ---
 function initFirebaseAuth() {
@@ -294,8 +304,25 @@ async function init() {
     if (el) el.addEventListener("input", renderOffers);
   });
   $("#btnMedSearch")?.addEventListener("click", loadMedicalRecords);
+  ["medFilterCountry", "medFilterPhase", "medFilterStatus"].forEach((id) => {
+    $("#" + id)?.addEventListener("change", loadMedicalRecords);
+  });
   $("#medSearch")?.addEventListener("keypress", (e) => {
     if (e.key === "Enter") loadMedicalRecords();
+  });
+  $("#tabMedTrials")?.addEventListener("click", () => {
+    $("#tabMedTrials").classList.add("active");
+    $("#tabMedPlants").classList.remove("active");
+    $("#medGrid").classList.remove("hidden");
+    $("#medPlantsGrid").classList.add("hidden");
+    loadMedicalRecords();
+  });
+  $("#tabMedPlants")?.addEventListener("click", () => {
+    $("#tabMedPlants").classList.add("active");
+    $("#tabMedTrials").classList.remove("active");
+    $("#medPlantsGrid").classList.remove("hidden");
+    $("#medGrid").classList.add("hidden");
+    loadMedicalPlants();
   });
   $("#medClose")?.addEventListener("click", () => $("#medicalModal").classList.add("hidden"));
   $("#btnGenerateMedicalEmail")?.addEventListener("click", generateMedicalEmail);
@@ -1039,37 +1066,83 @@ function connectSSE() {
   } catch (_) {}
 }
 
-/* --- medical compact --- */
-async function loadMedicalStats() {
+/* --- medical pro & pharmacopée --- */
+async function loadMedical() {
   try {
     const s = await api("/api/medical/stats");
-    $("#medStats").textContent = `${s.total_records || 0} dossiers · backend ${s.backend || "?"}`;
+    $("#medStats").textContent = `${s.total_records || 0} dossiers cliniques · ${s.total_plants || 0} plantes répertoriées · base ${s.backend || "active"}`;
   } catch (_) {}
+  loadMedicalRecords();
 }
 
 async function loadMedicalRecords() {
   const grid = $("#medGrid");
   if (!grid) return;
-  grid.innerHTML = '<p class="muted">Chargement...</p>';
+  grid.innerHTML = '<p class="muted">Recherche des dossiers cliniques en cours...</p>';
   const search = ($("#medSearch")?.value || "").trim();
+  const country = ($("#medFilterCountry")?.value || "").trim();
+  const phase = ($("#medFilterPhase")?.value || "").trim();
+  const status = ($("#medFilterStatus")?.value || "").trim();
+
   try {
-    let url = "/api/medical/search";
-    if (search) url += `?q=${encodeURIComponent(search)}`;
+    const params = new URLSearchParams();
+    if (search) params.set("q", search);
+    if (country) params.set("country", country);
+    if (phase) params.set("phase", phase);
+    if (status) params.set("status", status);
+
+    const url = `/api/medical/search?${params.toString()}`;
     const res = await api(url);
-    const records = res.results || res;
-    grid.innerHTML =
-      records
-        .map((r) => {
-          const payload = encodeURIComponent(JSON.stringify(r));
-          return `<article class="discover-card" onclick="openMedicalModal('${payload}')">
-            <div class="meta">${esc(r.source || "medical")}</div>
-            <h3>${esc(r.title)}</h3>
-            <p>${esc((r.ai_cheat_sheet || r.summary || "").slice(0, 140))}</p>
-          </article>`;
-        })
-        .join("") || '<p class="muted">Aucun résultat.</p>';
+    const records = res.results || res || [];
+    
+    if (!records.length) {
+      grid.innerHTML = '<p class="muted">Aucun essai clinique correspondant aux filtres.</p>';
+      return;
+    }
+
+    grid.innerHTML = records
+      .map((r) => {
+        const payload = encodeURIComponent(JSON.stringify(r));
+        const badgeColor = r.status === "RECRUITING" ? "var(--accent)" : "var(--muted)";
+        return `<article class="discover-card" onclick="openMedicalModal('${payload}')">
+          <div class="meta" style="display:flex;justify-content:space-between;">
+            <span>${esc(r.source || "clinicaltrials")} · ${esc(r.country || "Afrique")}</span>
+            <span style="color:${badgeColor};font-weight:600;">${esc(r.phase || r.status || "")}</span>
+          </div>
+          <h3>${esc(r.title)}</h3>
+          <p>${esc((r.ai_cheat_sheet || r.summary || "").slice(0, 150))}…</p>
+          <div style="margin-top:8px;font-size:0.78rem;color:var(--accent2);">Voir la fiche de synthèse →</div>
+        </article>`;
+      })
+      .join("");
   } catch (_) {
-    grid.innerHTML = '<p class="muted">Erreur médicale.</p>';
+    grid.innerHTML = '<p class="muted">Erreur lors de la récupération des données médicales.</p>';
+  }
+}
+
+async function loadMedicalPlants() {
+  const grid = $("#medPlantsGrid");
+  if (!grid) return;
+  grid.innerHTML = '<p class="muted">Chargement de la pharmacopée africaine...</p>';
+  try {
+    const res = await api("/api/medical/plants");
+    const plants = res.plants || res || [];
+    if (!plants.length) {
+      grid.innerHTML = '<p class="muted">Aucune plante trouvée.</p>';
+      return;
+    }
+    grid.innerHTML = plants
+      .map((p) => {
+        return `<article class="discover-card">
+          <div class="meta">🌿 Pharmacopée Traditionnelle</div>
+          <h3>${esc(p.name)} <em style="font-size:0.85em;color:var(--muted)">(${esc(p.scientific_name || "")})</em></h3>
+          <p><strong>Indications :</strong> ${esc(p.indications || "Non renseigné")}</p>
+          <p class="small muted"><strong>Principes actifs :</strong> ${esc(p.active_compounds || "N/A")}</p>
+        </article>`;
+      })
+      .join("");
+  } catch (_) {
+    grid.innerHTML = '<p class="muted">Erreur lors du chargement des plantes.</p>';
   }
 }
 
@@ -1081,16 +1154,16 @@ window.openMedicalModal = function (encoded) {
   $("#medTitle").textContent = record.title || "";
   $("#medStatusBadge").innerHTML = `<span class="muted">${esc(record.status || "")} · ${esc(record.nct_id || record.id || "")}</span>`;
   $("#medCheatSheetContent").innerHTML = mdToHtml(record.ai_cheat_sheet || record.summary || "Pas de fiche.");
-  $("#medLabName").textContent = record.sponsor || "";
-  $("#medCityCountry").textContent = `${record.city || ""} ${record.country || ""}`;
+  $("#medLabName").textContent = record.sponsor ? `Investigateur / Sponsor : ${record.sponsor}` : "";
+  $("#medCityCountry").textContent = record.city || record.country ? `Localisation : ${record.city || ""} ${record.country || ""}` : "";
   $("#medTrialUrl").innerHTML = record.url
-    ? `<a href="${esc(record.url)}" target="_blank" rel="noopener">Source</a>`
+    ? `<a href="${esc(record.url)}" target="_blank" rel="noopener">Consulter l'essai officiel en ligne ↗</a>`
     : "";
 };
 
 async function generateMedicalEmail() {
   if (!currentRecord?.id) return;
-  const caseSummary = ($("#medCaseSummary")?.value || "").trim() || "Cas anonymisé";
+  const caseSummary = ($("#medCaseSummary")?.value || "").trim() || "Demande d'informations sur l'essai clinique";
   try {
     const res = await api(`/api/medical/${encodeURIComponent(currentRecord.id)}/contact-email`, {
       method: "POST",

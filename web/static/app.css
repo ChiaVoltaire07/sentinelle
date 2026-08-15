@@ -329,7 +329,352 @@ body {
 }
 #emailLoginForm input {
   width: 100%; padding: 8px 12px; margin-bottom: 8px;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg); color: var(--fg); font-size: 0.9rem;
+  border: 1px solid var(--border, var(--brd)); border-radius: 6px;
+  background: var(--bg); color: var(--txt); font-size: 0.9rem;
 }
 #emailLoginForm input:focus { border-color: var(--accent); outline: none; }
+
+/* ---- Landing Page Styles ---- */
+.home-landing {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.landing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--panel-soft);
+  border: 1px solid var(--brd);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--txt);
+  font-weight: 500;
+  margin-bottom: 18px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #10B981;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.home-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  margin: 0 0 14px;
+  color: var(--txt);
+  font-family: var(--display);
+}
+
+.landing-subtitle {
+  font-size: 1.05rem;
+  color: var(--muted);
+  max-width: 680px;
+  line-height: 1.5;
+  margin: 0 0 28px;
+}
+
+.landing-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.chip-example {
+  background: var(--bg2);
+  border: 1px solid var(--brd);
+  color: var(--txt);
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chip-example:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+/* 3 Pillars Grid */
+.landing-pillars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  width: 100%;
+  margin: 40px 0 32px;
+  text-align: left;
+}
+
+.pillar-card {
+  background: var(--bg2);
+  border: 1px solid var(--brd);
+  border-radius: var(--radius);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.pillar-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.pillar-icon {
+  font-size: 1.8rem;
+  margin-bottom: 10px;
+}
+
+.pillar-tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.pillar-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+  color: var(--txt);
+}
+
+.pillar-card p {
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0 0 16px;
+  flex: 1;
+}
+
+.pillar-link {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent2);
+}
+
+/* KPI Banner */
+.landing-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  width: 100%;
+  background: var(--panel-soft);
+  border: 1px solid var(--brd);
+  border-radius: var(--radius);
+  padding: 18px 12px;
+  margin-bottom: 32px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stat-num {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--txt);
+  font-family: var(--display);
+}
+
+.stat-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* CTA Box */
+.landing-cta-box {
+  width: 100%;
+  background: linear-gradient(135deg, var(--bg2), var(--panel));
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  margin-bottom: 36px;
+}
+
+.cta-content h3 {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+  color: var(--txt);
+}
+
+.cta-content p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.btn-cta-login {
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Footer */
+.landing-footer {
+  width: 100%;
+  padding-top: 24px;
+  border-top: 1px solid var(--brd);
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-top: 12px;
+}
+
+.footer-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .home-title { font-size: 1.85rem; }
+  .landing-stats { grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .landing-cta-box { flex-direction: column; text-align: center; }
+  .btn-cta-login { width: 100%; }
+}
+
+/* ---- Medical Pro Toolbar & Printable Cards ---- */
+.med-search-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.med-search-toolbar input {
+  flex: 2;
+  min-width: 220px;
+  padding: 10px 14px;
+  border: 1px solid var(--brd);
+  border-radius: 8px;
+  background: var(--bg2);
+  color: var(--txt);
+  font: inherit;
+}
+
+.med-search-toolbar select {
+  flex: 1;
+  min-width: 140px;
+  padding: 10px 12px;
+  border: 1px solid var(--brd);
+  border-radius: 8px;
+  background: var(--bg2);
+  color: var(--txt);
+  font: inherit;
+  cursor: pointer;
+}
+
+.printable-header {
+  margin-bottom: 12px;
+}
+
+.badge-brand {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.med-details-meta {
+  margin: 12px 0;
+  font-size: 0.88rem;
+  border-top: 1px solid var(--brd);
+  padding-top: 10px;
+}
+
+/* Print Stylesheet for Medical Cheat Sheets */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #medicalModal, #medicalModal .printable-card, #medicalModal .printable-card * {
+    visibility: visible;
+  }
+  #medicalModal {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: auto;
+    background: #fff !important;
+    color: #000 !important;
+    padding: 0;
+    margin: 0;
+  }
+  .printable-card {
+    border: none !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #000 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 20px !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .cheat-sheet-body {
+    background: #f9f9f9 !important;
+    color: #111 !important;
+    border: 1px solid #ddd !important;
+    padding: 16px !important;
+    border-radius: 6px !important;
+  }
+  .cheat-sheet-body * {
+    color: #111 !important;
+  }
+}
+
+

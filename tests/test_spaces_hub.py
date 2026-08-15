@@ -75,7 +75,10 @@ class TestSpacesApi(unittest.TestCase):
     def setUp(self):
         from web.server import create_app
         from fastapi.testclient import TestClient
+        from bot.auth import create_token
         self.client = TestClient(create_app())
+        self.token = create_token({"sub": "test@sentinelle.ai", "uid": "u1"})
+        self.headers = {"Authorization": f"Bearer {self.token}"}
 
     def test_spaces_catalog(self):
         r = self.client.get("/api/spaces")
@@ -83,14 +86,14 @@ class TestSpacesApi(unittest.TestCase):
         self.assertTrue(any(s["slug"] == "crypto" for s in r.json()))
 
     def test_chat_greeting_grounded(self):
-        r = self.client.post("/api/chat", json={"message": "bonjour", "session_id": "test_sess"})
+        r = self.client.post("/api/chat", json={"message": "bonjour", "session_id": "test_sess"}, headers=self.headers)
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body["intent"], "chat")
         self.assertIn("sources", body)
 
     def test_history(self):
-        self.client.post("/api/chat", json={"message": "salut", "session_id": "hist1"})
+        self.client.post("/api/chat", json={"message": "salut", "session_id": "hist1"}, headers=self.headers)
         r = self.client.get("/api/chat/history")
         self.assertEqual(r.status_code, 200)
         self.assertTrue(any(s["session_id"] == "hist1" for s in r.json()))

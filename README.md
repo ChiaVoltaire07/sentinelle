@@ -1,91 +1,86 @@
-# Scout — Hub de recherche ancré (style Perplexity)
+# 🛡️ Sentinelle — Hub d'Intelligence, Veille & Décision Clinique
 
-PWA de **recherche ancrée sur le scraping** : l'assistant répond à partir des sources collectées (actu, crypto, géopolitique, santé, Polymarket), avec espaces thématiques, opportunités ciblées, suivis et Learn Trading (papier).
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com)
 
-## Démarrage (Windows)
+**Sentinelle** est une plateforme SaaS complète de **recherche ancrée sur le web scraping en temps réel**, de **veille clinique B2B pour praticiens africains** et de **simulation de marchés financiers**.
 
-```powershell
-cd D:\scrapper
-python -m pip install -r requirements.txt
-.\run_all.ps1
+L'assistant IA (alimenté par Google Gemini) génère des synthèses strictement vérifiables, sourcées et indexées 24/7 par un réseau de scrapers autonomes.
+
+---
+
+## 🌟 Les Piliers du Produit
+
+1. **🔍 Recherche Ancrée (Style Perplexity)** : Réponses sourcées en direct, citations vérifiables, score de crédibilité multi-sources.
+2. **🏥 Portail Clinique & Pharmacopée B2B** : Essais cliniques PubMed & ClinicalTrials.gov géolocalisés en Afrique, fiches de synthèse exportables/imprimables, et base de pharmacologie inversée des plantes médicinales traditionnelles.
+3. **📈 Marchés Financiers & Paper Trading** : Flux de cotations en direct (Binance SSE + Yahoo Finance), graphiques en chandeliers (TradingView Lightweight Charts), et simulateur de portefeuille éducatif sans risque financier.
+4. **🔔 Moteur d'Alertes & Veille Personnalisée** : Surveillance continue par mots-clés avec notifications email SMTP et Web Push (Firebase Cloud Messaging).
+
+---
+
+## 🚀 Démarrage Rapide
+
+### Option 1 : Développement Local (Windows / Linux / Mac)
+
+```bash
+# 1. Cloner le dépôt
+git clone https://github.com/arispacco/sentinelle.git
+cd sentinelle
+
+# 2. Installer les dépendances
+pip install -r requirements.txt
+
+# 3. Configurer l'environnement
+cp .env.example .env
+
+# 4. Lancer le serveur et le bot
+python -m uvicorn web.server:app --reload --port 8000
+```
+Rendez-vous sur **`http://localhost:8000`**.
+
+---
+
+### Option 2 : Déploiement Cloud sur Render (Docker)
+
+1. Connectez votre compte Render à votre dépôt GitHub : `https://github.com/arispacco/sentinelle.git`.
+2. Créez un service via le fichier de blueprint [`render.yaml`](./render.yaml).
+3. Ajoutez les variables d'environnement dans le Dashboard Render :
+   - `GEMINI_API_KEY` : Clé API Google AI Studio
+   - `FIREBASE_CREDENTIALS_JSON` : Clé de compte de service Firebase
+   - `PYTHON_ENV` : `production`
+
+---
+
+## 📱 Application Mobile Flutter (`medical_app`)
+
+L'application mobile multiplateforme (Android / iOS) permet aux professionnels de santé d'accéder aux essais cliniques et monographies hors-ligne :
+
+```bash
+cd medical_app
+flutter pub get
+flutter run
 ```
 
-Ouvre http://127.0.0.1:8000
+---
 
-## Fonctionnalités
+## 🧪 Tests Automatisés
 
-- **Chat hub** : question → scrape live → synthèse **uniquement** à partir des sources
-- **Profil local** : compétences, ville/pays, intérêts → matching opportunités
-- **Opportunités** : emplois, bourses, voyages, events + digest de bienvenue personnalisé
-- **Mes suivis** : dashboards (Yahoo Finance historique + actus), auto-refresh ~10 min
-- **Learn Trading** : simulation éducative (cash virtuel), niveaux beginner → pro
-- **Espaces** : Actualité, Sport, Finance, Crypto, Santé, Géopolitique, Prédictions
-- **Thèmes** clair / sombre (ambre / pierre)
+Pour exécuter la suite de tests complète (50 tests unitaires et d'intégration) :
 
-## API utiles
-
-- `GET/PUT /api/profile`
-- `GET /api/opportunities` / `feed` / `digest`
-- `POST /api/chat` `{ "message", "session_id" }`
-- `GET /api/spaces` / `GET /api/spaces/{slug}`
-- `GET/POST /api/watches*`
-- `GET /api/learn/portfolio` · `POST /api/learn/orders` · `POST /api/learn/explain` · `POST /api/learn/sweep`
-- `GET /api/crypto/markets` · `GET /api/predictions`
-- `GET /api/medical/*` (santé B2B)
-
-## Marché / cours (pile quasi gratuite)
-
-| Actif | Provider | Latence | Clé |
-|-------|----------|---------|-----|
-| Actions | Yahoo Finance | ~15 min | Non |
-| Actions (backup) | Stooq | EOD / delayed | Non |
-| Actions (option) | Finnhub / Alpha Vantage | near-realtime | `MARKET_API_KEY` |
-| Crypto | **Binance REST** (+ SSE poll) | ~1–3 s | Non |
-| Crypto (fallback) | CoinGecko | delayed | Non |
-
-- Graphiques : **TradingView Lightweight Charts** (chandeliers + SMA20)
-- `GET /api/market/quote` · `/chart` · `/crypto/tickers` · `/stream/{symbol}` (SSE)
-- `GET /api/market/providers` — état des providers
-- Tick-by-tick actions US : **pas gratuit** (licences NYSE/NASDAQ). Crypto oui via Binance.
-
-```env
-MARKET_PROVIDER=auto          # auto | finnhub | alphavantage
-MARKET_API_KEY=               # optionnel free tier
+```bash
+python -m unittest discover tests
 ```
 
-## Scrapers
+---
 
-| Module | Source |
-|--------|--------|
-| `scrapers/news.py` | Google News RSS |
-| `scrapers/jobs.py` | RemoteOK, Arbeitnow, Google News jobs |
-| `scrapers/scholarships.py` / `travel_opps.py` / `events.py` | Bourses, voyages, events (RSS) |
-| `scrapers/crypto.py` | CoinGecko + RSS |
-| `scrapers/geopolitics.py` | RSS conflits |
-| `scrapers/predictions.py` | Polymarket Gamma API |
-| `scrapers/medical.py` | ClinicalTrials + PubMed |
+## 🔒 Sécurité & Conformité
 
-## Tests
+- **Authentification Unifiée** : Firebase Auth (Google SSO + Email/Password) + JWT propriétaire B2B.
+- **Protection des Routes** : Accès libre en lecture (GET), authentification obligatoire en écriture (POST/PUT/DELETE).
+- **Anti-Abus** : Rate Limiter thread-safe avec fenêtre glissante (`asyncio.Lock`).
+- **Avertissement Légal** : Les informations médicales et financières fournies par Sentinelle sont délivrées à titre informatif et ne constituent ni un diagnostic médical, ni un conseil en investissement.
 
-```powershell
-python -m unittest discover -s tests -p "test_*.py"
-```
+---
 
-## Recherche sémantique & fiches IA (médical)
+## 📄 Licence
+Projet sous licence MIT — Développé par **Aris Pacco** (2026).
 
-- **Recherche sémantique sans Postgres** : les embeddings (`gemini-embedding-001`, 768 dims) sont stockés en colonne `embedding` de `medical.db` (blob float32, ~3 Ko/dossier) et la similarité cosinus est calculée en Python. Repli automatique sur la recherche textuelle si aucun embedding. PostgreSQL + PostGIS + pgvector reste supporté en option via `DATABASE_URL` (docker-compose).
-- **Backfill embeddings** des dossiers existants :
-  ```powershell
-  python -m bot.embed_medical --limit 400
-  ```
-- **Batch fiches IA** (cheat sheets) :
-  ```powershell
-  python -m bot.cheat_sheet_queue --limit 400
-  ```
-  La file gère les pauses automatiques en cas de quota (429) et reprend là où elle s'était arrêtée.
-
-## Notes
-
-- Prédictions / crypto / Learn Trading : **pas de conseil financier** ; trading = papier uniquement.
-- Santé : usage professionnel.
-- Le `.venv` Linux (WSL) n'est pas utilisable tel quel sous Windows : utiliser le Python système ou créer `python -m venv .venv` sous Windows.
