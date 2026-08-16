@@ -34,6 +34,7 @@ class Offer:
     provenance: List[dict] = field(default_factory=list)  # [{source,url,found_at,alive}]
     status: str = "new"                # new/validated/shared/expired/rejected
     vanished: int = 0
+    image_url: str = ""
 
     def __post_init__(self):
         if not self.id:

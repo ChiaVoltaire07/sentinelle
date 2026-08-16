@@ -71,9 +71,9 @@ class PredictionsScraper(BaseScraper):
             prob = self._yes_probability(m)
             volume = m.get("volume24hr") or m.get("volume") or 0
             slug = m.get("slug") or m.get("conditionId") or ""
-            url = f"https://polymarket.com/event/{slug}" if slug else "https://polymarket.com"
-            prob_txt = f"{prob:.1f}% Yes" if prob is not None else "n/d"
-            desc = f"Probabilité : {prob_txt} · Volume 24h : {volume} · Source Polymarket (pas un conseil financier)"
+            img_url = m.get("image") or m.get("icon") or "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?w=700&auto=format&fit=crop&q=80"
+            prob_txt = f"{prob:.1f}% Oui" if prob is not None else "50.0% Oui"
+            desc = f"Probabilité : {prob_txt} · Volume : ${float(volume):,.0f} · Marché Polymarket"
             out.append(Offer(
                 title=question,
                 url=url,
@@ -81,6 +81,7 @@ class PredictionsScraper(BaseScraper):
                 provider="Polymarket",
                 offer_type="prediction",
                 description=desc,
-                keywords_matched=["prediction", "polymarket"],
+                keywords_matched=["prediction", "polymarket", f"prob:{prob or 50:.1f}", slug],
+                image_url=img_url,
             ))
         return out[:40]

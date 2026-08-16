@@ -83,7 +83,11 @@ def _offer_dict(o: Offer) -> dict:
         "provider": o.provider,
         "offer_type": o.offer_type,
         "description": o.description,
+        "image_url": getattr(o, "image_url", ""),
+        "keywords_matched": getattr(o, "keywords_matched", []),
     }
+    if "image_url" not in d:
+        d["image_url"] = getattr(o, "image_url", "")
     return d
 
 
@@ -130,6 +134,7 @@ def load_space_items(slug: str, query: Optional[str] = None, limit: int = 24) ->
                     "description": r.get("ai_cheat_sheet") or r.get("summary") or "",
                     "status": r.get("status"),
                     "phase": r.get("phase"),
+                    "image_url": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=700&auto=format&fit=crop&q=80",
                 })
             # Si vide et query : scrape live
             if not items and query:
@@ -145,6 +150,7 @@ def load_space_items(slug: str, query: Optional[str] = None, limit: int = 24) ->
                         "provider": rec.get("sponsor") or "Santé",
                         "offer_type": "medical",
                         "description": rec.get("summary") or "",
+                        "image_url": "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=700&auto=format&fit=crop&q=80",
                     })
             store.close()
     except Exception as e:

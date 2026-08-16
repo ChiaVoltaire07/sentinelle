@@ -41,14 +41,19 @@ class GeopoliticsScraper(BaseScraper):
             provider = "Google News"
             if " - " in title:
                 title, provider = title.rsplit(" - ", 1)
+            enc = item.find("enclosure")
+            img_url = enc["url"] if enc and enc.get("url") else ""
+            if not img_url:
+                img_url = "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=700&auto=format&fit=crop&q=80"
             out.append(Offer(
                 title=title,
                 url=link,
                 source="geopolitics_news",
                 provider=provider,
                 offer_type="geopolitics",
-                description=description or "Actu géopolitique",
+                description=description or "Consultez l'analyse géopolitique complète.",
                 keywords_matched=["geopolitics", query],
+                image_url=img_url,
             ))
         return out
 

@@ -92,6 +92,7 @@ class CryptoScraper(BaseScraper):
                 if change is not None
                 else f"Prix : {price} USD · Volume : {vol} · source {src}"
             )
+            img_url = m.get("image") or f"https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/{symbol.lower()}.png"
             out.append(Offer(
                 title=f"{name} ({symbol})",
                 url=(
@@ -104,6 +105,7 @@ class CryptoScraper(BaseScraper):
                 offer_type="crypto",
                 description=desc,
                 keywords_matched=["crypto", symbol.lower(), name.lower(), src],
+                image_url=img_url,
             ))
         return out
 
@@ -121,14 +123,24 @@ class CryptoScraper(BaseScraper):
             provider = "Google News"
             if " - " in title:
                 title, provider = title.rsplit(" - ", 1)
+            
+            desc_raw = item.find("description").get_text() if item.find("description") else ""
+            description = BeautifulSoup(desc_raw, "html.parser").get_text().replace("&nbsp;", " ").strip()
+            
+            enc = item.find("enclosure")
+            img_url = enc["url"] if enc and enc.get("url") else ""
+            if not img_url:
+                img_url = "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=700&auto=format&fit=crop&q=80"
+                
             out.append(Offer(
                 title=title,
                 url=link,
                 source="crypto_news",
                 provider=provider,
                 offer_type="crypto",
-                description="Actu crypto",
+                description=description or "Consultez l'actualité crypto complète.",
                 keywords_matched=["crypto", "news"],
+                image_url=img_url,
             ))
         return out
 

@@ -17,6 +17,7 @@ class Offer:
     description: str = ""
     keywords_matched: List[str] = field(default_factory=list)
     found_at: str = ""
+    image_url: str = ""
 
     def __post_init__(self):
         if not self.found_at:
