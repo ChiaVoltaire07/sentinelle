@@ -60,6 +60,18 @@ class PaperTradingStore:
                 note TEXT NOT NULL,
                 created_at TEXT DEFAULT (datetime('now', 'utc'))
             );
+            CREATE TABLE IF NOT EXISTS paper_predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_slug TEXT NOT NULL,
+                question TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                shares REAL NOT NULL,
+                buy_price REAL NOT NULL,
+                amount_invested REAL NOT NULL,
+                potential_payout REAL NOT NULL,
+                status TEXT DEFAULT 'open',
+                created_at TEXT DEFAULT (datetime('now', 'utc'))
+            );
             """
         )
         if not self.conn.execute("SELECT id FROM paper_accounts WHERE id=1").fetchone():
@@ -304,13 +316,46 @@ class PaperTradingStore:
             )
         return {"swept": len(filled), "filled": filled}
 
+    def buy_prediction(self, market_slug: str, question: str, outcome: str, price: float, amount: float) -> dict:
+        acc = self.account()
+        cash = float(acc["cash"])
+        if amount <= 0:
+            return {"error": "Montant invalide"}
+        if amount > cash:
+            return {"error": f"Fonds virtuels insuffisants (disponible : {cash:.2f} $)"}
+        
+        p = max(0.01, min(float(price or 0.5), 0.99))
+        shares = round(amount / p, 2)
+        payout = round(shares * 1.0, 2)
+        
+        new_cash = cash - amount
+        self.conn.execute("UPDATE paper_accounts SET cash=? WHERE id=1", (new_cash,))
+        cur = self.conn.execute(
+            """INSERT INTO paper_predictions 
+               (market_slug, question, outcome, shares, buy_price, amount_invested, potential_payout, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
+            (market_slug, question, outcome.upper(), shares, p, amount, payout)
+        )
+        self.add_journal(f"Prédiction achetée : {amount:.2f} $ sur '{outcome}' @ {p:.2f} ({question[:50]}...)")
+        return {
+            "status": "success",
+            "prediction_id": cur.lastrowid,
+            "outcome": outcome.upper(),
+            "shares": shares,
+            "buy_price": p,
+            "amount_invested": amount,
+            "potential_payout": payout,
+            "remaining_cash": new_cash,
+        }
+
+    def list_predictions(self, limit: int = 50) -> List[Dict[str, Any]]:
+        return [dict(r) for r in self.conn.execute("SELECT * FROM paper_predictions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+
     def portfolio(self) -> Dict[str, Any]:
-        # Tenter de remplir les ordres limites en attente avant le mark-to-market.
-        # sweep_open_orders n'appelle pas portfolio() (pas de récursion).
         try:
             self.sweep_open_orders()
         except Exception:
-            pass  # ne jamais casser portfolio() sur une erreur de prix
+            pass
         acc = self.account()
         positions = []
         equity = float(acc["cash"])
@@ -325,11 +370,17 @@ class PaperTradingStore:
                 "market_value": round(mkt, 2),
                 "pnl": round(pnl, 2),
             })
+        
+        preds = self.list_predictions(20)
+        for pred in preds:
+            equity += float(pred.get("amount_invested") or 0)
+
         return {
             "account": acc,
             "cash": round(float(acc["cash"]), 2),
             "equity": round(equity, 2),
             "positions": positions,
+            "predictions": preds,
             "orders": self.orders(15),
             "fills": self.fills(15),
             "journal": self.journal(10),

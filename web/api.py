@@ -602,6 +602,35 @@ def create_router(store: Store) -> APIRouter:
         from bot.paper_trading import get_paper_store
         return get_paper_store().sweep_open_orders()
 
+    # --- Marché de prédictions (Polymarket Paper Betting) ---
+    @router.post("/predictions/bet")
+    async def place_prediction_bet(body: dict):
+        from bot.paper_trading import get_paper_store
+        market_slug = body.get("market_slug") or "poly-bet"
+        question = body.get("question") or "Marché de prédiction"
+        outcome = body.get("outcome") or "YES"
+        price = float(body.get("price") or 0.5)
+        amount = float(body.get("amount") or 10.0)
+        res = get_paper_store().buy_prediction(
+            market_slug=market_slug,
+            question=question,
+            outcome=outcome,
+            price=price,
+            amount=amount,
+        )
+        if "error" in res:
+            return JSONResponse(res, 400)
+        return res
+
+    @router.get("/predictions/portfolio")
+    async def get_predictions_portfolio():
+        from bot.paper_trading import get_paper_store
+        p = get_paper_store()
+        return {
+            "predictions": p.list_predictions(50),
+            "cash": p.account().get("cash", 0),
+        }
+
     @router.get("/health")
     async def health():
         """Healthcheck pour Render — vérifie DB et services."""
