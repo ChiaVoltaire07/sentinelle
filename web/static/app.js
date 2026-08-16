@@ -297,6 +297,7 @@ async function init() {
   $("#learnSymbol")?.addEventListener("change", loadLearnChart);
   $("#learnChartRange")?.addEventListener("change", loadLearnChart);
   $("#btnLearnChartRefresh")?.addEventListener("click", loadLearnChart);
+  wireTradingEvents();
 
   $("#btnRun")?.addEventListener("click", runAll);
   ["search", "fTier", "fNetwork", "fType"].forEach((id) => {
@@ -399,12 +400,41 @@ async function loadSpace(slug, q = "") {
         .map((it) => {
           const meta = esc(it.provider || it.source || it.offer_type || "");
           const title = esc(it.title || "");
-          const desc = esc((it.description || "").slice(0, 160));
+          const desc = esc(it.description || "");
+          const img = it.image_url || it.image || "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=700&auto=format&fit=crop&q=80";
           const payload = encodeURIComponent(JSON.stringify(it));
+          const isPrediction = slug === "predictions" || it.offer_type === "prediction";
+          
+          let predictionActions = "";
+          if (isPrediction) {
+            const matchProb = (it.description || "").match(/(\d+(\.\d+)?)%\s*Oui/i) || (it.description || "").match(/(\d+(\.\d+)?)%\s*Yes/i);
+            const yesProb = matchProb ? parseFloat(matchProb[1]) : 50;
+            const yesPrice = (yesProb / 100).toFixed(2);
+            const noPrice = ((100 - yesProb) / 100).toFixed(2);
+            predictionActions = `
+              <div class="poly-actions" onclick="event.stopPropagation();">
+                <button class="btn-bet-yes" type="button" onclick="openBetModal('${payload}', 'YES', ${yesPrice})">🟢 Acheter OUI (${Math.round(yesProb)}¢)</button>
+                <button class="btn-bet-no" type="button" onclick="openBetModal('${payload}', 'NO', ${noPrice})">🔴 Acheter NON (${Math.round(100 - yesProb)}¢)</button>
+              </div>
+            `;
+          }
+
           return `<article class="discover-card" data-payload="${payload}">
-            <div class="meta">${meta}</div>
-            <h3>${title}</h3>
-            <p>${desc}</p>
+            <img class="discover-card-img" src="${esc(img)}" alt="${title}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=700&auto=format&fit=crop&q=80'">
+            <div class="discover-card-body">
+              <div>
+                <div class="meta">
+                  <span>📰 ${meta}</span>
+                  ${it.status ? `<span>· ${esc(it.status)}</span>` : ""}
+                </div>
+                <h3>${title}</h3>
+                <p>${desc}</p>
+              </div>
+              <div class="discover-card-footer">
+                ${predictionActions || `<span class="read-link">Lire la source complète sur ${meta} ↗</span>`}
+                <span class="muted small">${esc(it.source || "source")}</span>
+              </div>
+            </div>
           </article>`;
         })
         .join("") || '<p class="muted">Aucun élément pour le moment.</p>';
@@ -480,7 +510,11 @@ async function ask(raw) {
       body: JSON.stringify({ message, session_id: state.sessionId }),
     });
     typing.remove();
-    appendBubble("bot", res.reply || "Pas de réponse.", res.sources || res.offers || []);
+    if (res.error) {
+      appendBubble("bot", `⚠️ ${res.error}`);
+    } else {
+      appendBubble("bot", res.reply || "Recherche complétée.", res.sources || res.offers || []);
+    }
     if (res.watch?.watch?.slug) {
       const slug = res.watch.watch.slug;
       const link = document.createElement("div");
@@ -1269,31 +1303,165 @@ async function loadOppGrid() {
   }
 }
 
-/* --- Learn Trading --- */
-function applyLearnUiLevel(level) {
-  const lv = level || "beginner";
-  $("#learnLevelBadge").textContent = "Niveau: " + lv;
-  $("#learnLevelSelect").value = lv;
-  const showAdv = lv !== "beginner";
-  $("#learnOrderTypeWrap")?.classList.toggle("hidden", !showAdv);
-  if (!showAdv) {
-    $("#learnOrderType").value = "market";
-    $("#learnLimitWrap")?.classList.add("hidden");
+/* --- Learn Trading & Prediction Markets --- */
+let currentSelectedAsset = "GOOGL";
+let currentTradeMode = "beginner";
+let currentBetPayload = null;
+let currentBetOutcome = "YES";
+let currentBetPrice = 0.50;
+
+function openBetModal(payloadStr, outcome, price) {
+  try {
+    const item = JSON.parse(decodeURIComponent(payloadStr));
+    currentBetPayload = item;
+    currentBetOutcome = outcome;
+    currentBetPrice = price;
+    
+    $("#betQuestion").textContent = item.title;
+    $("#betOutcomeBadge").textContent = outcome === "YES" ? "🟢 OUI (YES)" : "🔴 NON (NO)";
+    $("#betOutcomeBadge").style.color = outcome === "YES" ? "#10B981" : "#EF4444";
+    $("#betPriceDisplay").textContent = `${Math.round(price * 100)}¢ (${price} USD)`;
+    $("#betMsg").textContent = "";
+    updateBetPayout();
+    $("#betModal").classList.remove("hidden");
+  } catch (e) {
+    console.error("Error opening bet modal:", e);
   }
-  const gloss = {
-    beginner: "Glossaire : Market = exécution au dernier prix scrapé. Cash virtuel uniquement.",
-    intermediate: "Ordres limites : exécutés si le cours Yahoo est favorable. Suis ton P&L.",
-    pro: "Mode dense : multi-positions, journal, progression débloquée après trades.",
-  };
-  $("#learnGlossary").textContent = gloss[lv] || gloss.beginner;
+}
+
+function updateBetPayout() {
+  const amount = Number($("#betAmount")?.value || 50);
+  const payout = currentBetPrice > 0 ? (amount / currentBetPrice).toFixed(2) : "0.00";
+  const gain = (payout - amount).toFixed(2);
+  $("#betPotentialGain").textContent = `$${payout} (Gain net : +$${gain})`;
+}
+
+async function submitBet() {
+  if (!currentBetPayload) return;
+  const amount = Number($("#betAmount").value);
+  if (amount <= 0) return;
+  
+  $("#betMsg").textContent = "Envoi de la prise de position...";
+  try {
+    const res = await api("/api/predictions/bet", {
+      method: "POST",
+      body: JSON.stringify({
+        market_slug: currentBetPayload.url || currentBetPayload.title,
+        question: currentBetPayload.title,
+        outcome: currentBetOutcome,
+        price: currentBetPrice,
+        amount: amount,
+      }),
+    });
+    if (res.error) {
+      $("#betMsg").textContent = `⚠️ ${res.error}`;
+      return;
+    }
+    $("#betMsg").textContent = `✅ Pari validé ! ${res.shares} parts achetées.`;
+    setTimeout(() => {
+      $("#betModal").classList.add("hidden");
+      loadLearn();
+    }, 1000);
+  } catch (e) {
+    $("#betMsg").textContent = "Erreur lors de la validation du pari.";
+  }
+}
+
+function switchTradeMode(mode) {
+  currentTradeMode = mode;
+  $("#tabModeBeginner")?.classList.toggle("active", mode === "beginner");
+  $("#tabModePro")?.classList.toggle("active", mode === "pro");
+  $("#tradeBeginnerContainer")?.classList.toggle("hidden", mode !== "beginner");
+  $("#tradeProContainer")?.classList.toggle("hidden", mode !== "pro");
+  
+  api("/api/learn/level", { method: "POST", body: JSON.stringify({ level: mode }) });
+  loadLearnChart();
+}
+
+function selectAsset(symbol, name) {
+  currentSelectedAsset = symbol;
+  if ($("#learnSymbol")) $("#learnSymbol").value = symbol;
+  if ($("#beginnerAssetTitle")) {
+    $("#beginnerAssetTitle").textContent = `Cours en direct : ${name} (${symbol})`;
+  }
+  loadLearnChart();
+}
+
+async function executeBeginnerSide(side) {
+  const amount = Number($("#beginnerAmount").value || 500);
+  const ticker = ($("#learnSymbol")?.value || "GOOGL").trim().toUpperCase();
+  $("#beginnerTradeMsg").textContent = "Exécution en cours...";
+  
+  let price = 150.0;
+  try {
+    const q = await api(`/api/market/quote?symbol=${encodeURIComponent(ticker)}`);
+    if (q && q.price) price = q.price;
+  } catch (_) {}
+  
+  const qty = Number((amount / price).toFixed(4));
+  const res = await api("/api/learn/orders", {
+    method: "POST",
+    body: JSON.stringify({
+      symbol: ticker,
+      side: side,
+      qty: qty,
+      order_type: "market",
+    }),
+  });
+  
+  if (res.error) {
+    $("#beginnerTradeMsg").textContent = `⚠️ ${res.error}`;
+    return;
+  }
+  $("#beginnerTradeMsg").textContent = `✅ Ordre ${side === 'buy' ? 'Achat' : 'Vente'} exécuté : ${qty} ${ticker} @ ${res.fill_price ?? price} $`;
+  loadLearn();
+}
+
+async function closePosition(symbol) {
+  if (!confirm(`Clôturer la position sur ${symbol} au cours du marché ?`)) return;
+  try {
+    const p = await api("/api/learn/portfolio");
+    const pos = (p.positions || []).find(x => x.symbol === symbol);
+    if (!pos) return;
+    
+    const side = pos.qty > 0 ? "sell" : "buy";
+    const qty = Math.abs(pos.qty);
+    await api("/api/learn/orders", {
+      method: "POST",
+      body: JSON.stringify({ symbol, side, qty, order_type: "market" }),
+    });
+    loadLearn();
+  } catch (_) {}
+}
+
+function renderSimulatedOrderBook(lastPrice) {
+  const base = lastPrice || 150.0;
+  const bidsEl = $("#simulatedBids");
+  const asksEl = $("#simulatedAsks");
+  if (!bidsEl || !asksEl) return;
+  
+  let bidsHtml = "";
+  let asksHtml = "";
+  for (let i = 1; i <= 5; i++) {
+    const bidP = (base * (1 - 0.0012 * i)).toFixed(2);
+    const askP = (base * (1 + 0.0012 * i)).toFixed(2);
+    const bidQty = (Math.random() * 40 + 5).toFixed(1);
+    const askQty = (Math.random() * 40 + 5).toFixed(1);
+    bidsHtml += `<div style="display:flex;justify-content:space-between;padding:2px 4px;background:rgba(16,185,129,0.06);border-radius:4px;"><span style="color:#10B981;font-weight:600;">$${bidP}</span><span class="muted">${bidQty}</span></div>`;
+    asksHtml += `<div style="display:flex;justify-content:space-between;padding:2px 4px;background:rgba(239,68,68,0.06);border-radius:4px;"><span style="color:#EF4444;font-weight:600;">$${askP}</span><span class="muted">${askQty}</span></div>`;
+  }
+  bidsEl.innerHTML = bidsHtml;
+  asksEl.innerHTML = asksHtml;
 }
 
 async function loadLearnChart() {
-  const host = $("#learnChart");
+  const isBeginner = currentTradeMode === "beginner";
+  const host = isBeginner ? $("#learnChartBeginner") : $("#learnChart");
   if (!host) return;
+  
   const ticker = ($("#learnSymbol")?.value || "GOOGL").trim().toUpperCase();
   if (!ticker) return;
-  const range = $("#learnChartRange")?.value || "1mo";
+  const range = (isBeginner ? $("#learnChartRangeBeginner")?.value : $("#learnChartRange")?.value) || "1mo";
   host.innerHTML = `<p class="muted small">Chargement du cours de ${esc(ticker)}…</p>`;
   let chart;
   try {
@@ -1314,6 +1482,9 @@ async function loadLearnChart() {
   }
   const srcEl = $("#learnChartSource");
   if (srcEl) srcEl.textContent = `· ${chart.source || ""} · ${chart.latency || ""} · ${chart.delay_note || ""}`;
+  
+  renderSimulatedOrderBook(points[points.length - 1]?.price);
+
   if (window.LightweightCharts) {
     try {
       renderLwChart(host, points, chart);
@@ -1339,39 +1510,71 @@ async function loadLearn() {
 
 function paintLearn(p) {
   const acc = p.account || {};
-  applyLearnUiLevel(acc.unlocked_level || "beginner");
+  const positions = p.positions || [];
+  const predictions = p.predictions || [];
+  const fills = p.fills || [];
+  const totalTrades = acc.trades_count || fills.length || 0;
+
   $("#learnKpis").innerHTML = [
-    kpi(p.cash != null ? p.cash.toFixed(2) : "—", "Cash virtuel"),
-    kpi(p.equity != null ? p.equity.toFixed(2) : "—", "Equity"),
-    kpi(acc.trades_count ?? 0, "Trades"),
-    kpi(acc.unlocked_level || "—", "Niveau"),
+    kpi(p.cash != null ? `$${p.cash.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : "—", "Cash Virtuel"),
+    kpi(p.equity != null ? `$${p.equity.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}` : "—", "Valeur Totale (Equity)"),
+    kpi(positions.length, "Positions Ouvertes"),
+    kpi(predictions.length, "Paris Prédictions"),
+    kpi(totalTrades, "Exécutions (Trades)"),
   ].join("");
+
   const tbody = $("#learnPosTable tbody");
-  tbody.innerHTML =
-    (p.positions || [])
-      .map(
-        (x) => `<tr>
-        <td>${esc(x.symbol)}</td>
-        <td>${esc(String(x.qty))}</td>
-        <td>${esc(Number(x.avg_price).toFixed(2))}</td>
-        <td>${esc(x.last_price != null ? Number(x.last_price).toFixed(2) : "—")}</td>
-        <td>${esc(x.pnl != null ? Number(x.pnl).toFixed(2) : "—")}</td>
-      </tr>`
-      )
-      .join("") || `<tr><td colspan="5" class="muted">Aucune position</td></tr>`;
+  if (tbody) {
+    tbody.innerHTML =
+      positions
+        .map(
+          (x) => {
+            const pnlVal = x.pnl != null ? Number(x.pnl) : 0;
+            const pnlColor = pnlVal >= 0 ? "#10B981" : "#EF4444";
+            return `<tr>
+              <td><strong>${esc(x.symbol)}</strong></td>
+              <td>${esc(String(x.qty))}</td>
+              <td>$${esc(Number(x.avg_price).toFixed(2))}</td>
+              <td>$${esc(x.last_price != null ? Number(x.last_price).toFixed(2) : "—")}</td>
+              <td style="color:${pnlColor};font-weight:700;">${pnlVal >= 0 ? "+" : ""}$${pnlVal.toFixed(2)}</td>
+              <td><button type="button" class="btn" style="padding:4px 8px;font-size:0.75rem;" onclick="closePosition('${esc(x.symbol)}')">Fermer ✕</button></td>
+            </tr>`;
+          }
+        )
+        .join("") || `<tr><td colspan="6" class="muted" style="text-align:center;">Aucune position active. Passez un premier ordre ci-dessus !</td></tr>`;
+  }
+
+  const predTbody = $("#learnPredTable tbody");
+  if (predTbody) {
+    predTbody.innerHTML =
+      predictions
+        .map(
+          (pred) => `<tr>
+            <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${esc(pred.question)}">${esc(pred.question)}</td>
+            <td><span class="badge-brand" style="font-size:0.75rem;">${esc(pred.outcome)}</span></td>
+            <td>${esc(String(pred.shares))}</td>
+            <td>$${esc(Number(pred.amount_invested).toFixed(2))}</td>
+            <td style="color:#10B981;font-weight:700;">$${esc(Number(pred.potential_payout).toFixed(2))}</td>
+          </tr>`
+        )
+        .join("") || `<tr><td colspan="5" class="muted" style="text-align:center;">Aucun pari en cours. Découvrez l'espace Prédictions !</td></tr>`;
+  }
+
   const ft = $("#learnFillsTable tbody");
-  ft.innerHTML =
-    (p.fills || [])
-      .map(
-        (f) => `<tr>
-        <td>${esc(f.symbol)}</td>
-        <td>${esc(f.side)}</td>
-        <td>${esc(String(f.qty))}</td>
-        <td>${esc(Number(f.price).toFixed(2))}</td>
-        <td>${esc((f.created_at || "").slice(0, 19))}</td>
-      </tr>`
-      )
-      .join("") || `<tr><td colspan="5" class="muted">Aucun fill</td></tr>`;
+  if (ft) {
+    ft.innerHTML =
+      fills
+        .map(
+          (f) => `<tr>
+          <td><strong>${esc(f.symbol)}</strong></td>
+          <td><span style="color:${f.side === 'buy' ? '#10B981' : '#EF4444'};font-weight:700;">${esc(f.side.toUpperCase())}</span></td>
+          <td>${esc(String(f.qty))}</td>
+          <td>$${esc(Number(f.price).toFixed(2))}</td>
+          <td>${esc((f.created_at || "").slice(0, 19).replace('T', ' '))}</td>
+        </tr>`
+        )
+        .join("") || `<tr><td colspan="5" class="muted" style="text-align:center;">Aucun historique récent.</td></tr>`;
+  }
 }
 
 async function placeLearnOrder() {
@@ -1380,7 +1583,7 @@ async function placeLearnOrder() {
     side: $("#learnSide").value,
     qty: Number($("#learnQty").value),
     order_type: $("#learnOrderType")?.value || "market",
-    limit_price: $("#learnLimit").value ? Number($("#learnLimit").value) : null,
+    limit_price: $("#learnLimit")?.value ? Number($("#learnLimit").value) : null,
   };
   const res = await api("/api/learn/orders", { method: "POST", body: JSON.stringify(body) });
   if (res.error) {
@@ -1390,31 +1593,27 @@ async function placeLearnOrder() {
   $("#learnTradeMsg").textContent = `Ordre ${res.status} @ ${res.fill_price ?? "n/a"}`;
   if (res.portfolio) paintLearn(res.portfolio);
   else loadLearn();
-  // Recharger le cours (le P&L dépend du dernier prix)
   loadLearnChart();
 }
 
-async function askLearn() {
-  const question = ($("#learnAsk").value || "").trim();
-  if (!question) return;
-  $("#learnAnswer").textContent = "…";
-  const res = await api("/api/learn/explain", {
-    method: "POST",
-    body: JSON.stringify({ question }),
-  });
-  $("#learnAnswer").innerHTML = mdToHtml((res.answer || "") + "\n\n_" + (res.disclaimer || "") + "_");
-}
-
-async function setLearnLevel() {
-  const level = $("#learnLevelSelect").value;
-  await api("/api/learn/level", { method: "POST", body: JSON.stringify({ level }) });
-  loadLearn();
-}
-
 async function resetLearn() {
-  if (!confirm("Réinitialiser le compte papier ?")) return;
+  if (!confirm("Réinitialiser le compte virtuel à 10 000 $ ?")) return;
   const p = await api("/api/learn/reset", { method: "POST", body: "{}" });
   paintLearn(p);
 }
+
+// Initialise event listeners on startup
+function wireTradingEvents() {
+  $("#tabModeBeginner")?.addEventListener("click", () => switchTradeMode("beginner"));
+  $("#tabModePro")?.addEventListener("click", () => switchTradeMode("pro"));
+  $("#btnLearnReset")?.addEventListener("click", resetLearn);
+  $("#btnLearnChartRefresh")?.addEventListener("click", loadLearnChart);
+  $("#betClose")?.addEventListener("click", () => $("#betModal")?.classList.add("hidden"));
+}
+
+const origInit = window.init;
+document.addEventListener("DOMContentLoaded", () => {
+  wireTradingEvents();
+});
 
 document.addEventListener("DOMContentLoaded", init);

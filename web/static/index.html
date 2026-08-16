@@ -331,88 +331,193 @@
     <!-- LEARN TRADING -->
     <section id="view-learn" class="view">
       <div class="space-header">
-        <h2>Learn Trading</h2>
-        <p class="disclaimer show">Simulation éducative — pas un conseil financier, pas d'argent réel. Prix via Yahoo (dernier close scrapé).</p>
-        <div class="space-actions">
-          <span class="muted" id="learnLevelBadge">Niveau: beginner</span>
-          <select id="learnLevelSelect">
-            <option value="beginner">Débutant</option>
-            <option value="intermediate">Intermédiaire</option>
-            <option value="pro">Pro</option>
-          </select>
-          <button class="btn" id="btnLearnLevel" type="button">Appliquer niveau</button>
-          <button class="btn" id="btnLearnReset" type="button">Reset démo</button>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+          <div>
+            <h2>📈 Simulateur de Marché & Paper Trading</h2>
+            <p class="muted">Apprentissage sans risque financier · Données réelles Yahoo Finance & Binance · Portefeuille virtuel 10 000 $</p>
+          </div>
+          <button class="btn" id="btnLearnReset" type="button">🔄 Réinitialiser le portefeuille</button>
+        </div>
+
+        <!-- Mode Toggle Tabs -->
+        <div class="tabs" style="margin: 18px 0 10px;">
+          <button class="tab active" id="tabModeBeginner" type="button">🎓 Mode Débutant (Guidé & Éducatif)</button>
+          <button class="tab" id="tabModePro" type="button">⚡ Mode Pro (Station de Trading Avancée)</button>
         </div>
       </div>
+
+      <!-- KPI BAR COMMUNE -->
       <div class="dash-kpis" id="learnKpis"></div>
-      <div class="panel" style="margin-bottom:12px;">
-        <div class="space-actions" style="margin-bottom:8px;">
-          <h3 style="margin:0;">Cours du symbole</h3>
-          <select id="learnChartRange">
-            <option value="5d">5 j</option>
-            <option value="1mo" selected>1 mois</option>
-            <option value="3mo">3 mois</option>
-            <option value="6mo">6 mois</option>
-            <option value="1y">1 an</option>
-          </select>
-          <button class="btn" id="btnLearnChartRefresh" type="button">Actualiser</button>
+
+      <!-- ==================== MODE DÉBUTANT ==================== -->
+      <div id="tradeBeginnerContainer">
+        <!-- Sélecteur rapide d'actifs populaires -->
+        <div class="panel" style="margin-bottom:14px;">
+          <h3 style="margin:0 0 10px;">1. Choisir un actif à analyser :</h3>
+          <div class="landing-examples" style="justify-content:flex-start;margin:0 0 14px;">
+            <button type="button" class="chip-example" onclick="selectAsset('GOOGL', 'Google')">🔍 Google (GOOGL)</button>
+            <button type="button" class="chip-example" onclick="selectAsset('AAPL', 'Apple')">🍎 Apple (AAPL)</button>
+            <button type="button" class="chip-example" onclick="selectAsset('TSLA', 'Tesla')">🚗 Tesla (TSLA)</button>
+            <button type="button" class="chip-example" onclick="selectAsset('NVDA', 'Nvidia')">⚡ Nvidia (NVDA)</button>
+            <button type="button" class="chip-example" onclick="selectAsset('BTCUSDT', 'Bitcoin')">₿ Bitcoin (BTC)</button>
+            <button type="button" class="chip-example" onclick="selectAsset('ETHUSDT', 'Ethereum')">Ξ Ethereum (ETH)</button>
+          </div>
+          
+          <div class="space-actions" style="margin-bottom:8px;">
+            <strong id="beginnerAssetTitle" style="font-size:1.1rem;">Cours de GOOGL</strong>
+            <select id="learnChartRangeBeginner" onchange="$('#learnChartRange').value=this.value; loadLearnChart();">
+              <option value="5d">5 jours</option>
+              <option value="1mo" selected>1 mois</option>
+              <option value="3mo">3 mois</option>
+              <option value="1y">1 an</option>
+            </select>
+          </div>
+          <div id="learnChartBeginner" style="width:100%;height:260px;"></div>
         </div>
-        <div id="learnChart" style="width:100%;height:300px;"></div>
-        <p class="muted small" id="learnChartSource"></p>
+
+        <div class="dash-split">
+          <!-- Ordre débutant simplifié -->
+          <div class="panel">
+            <h3>2. Passer un ordre virtuel</h3>
+            <p class="muted small">Achetez ou vendez au cours actuel sans réglages complexes.</p>
+            <form id="beginnerOrderForm" onsubmit="event.preventDefault(); placeBeginnerOrder();">
+              <div style="margin-bottom:12px;">
+                <label class="muted small">Montant virtuel à allouer ($) :</label>
+                <div style="display:flex;gap:6px;margin:6px 0;">
+                  <button type="button" class="chip-example" onclick="$('#beginnerAmount').value=100">$100</button>
+                  <button type="button" class="chip-example" onclick="$('#beginnerAmount').value=500">$500</button>
+                  <button type="button" class="chip-example" onclick="$('#beginnerAmount').value=1000">$1 000</button>
+                </div>
+                <input type="number" id="beginnerAmount" value="500" min="10" step="10" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--brd);background:var(--bg);color:var(--txt);font-weight:700;">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px;">
+                <button type="button" class="primary" style="background:#10B981;border-color:#10B981;padding:12px;" onclick="executeBeginnerSide('buy')">🟢 Acheter (Parier sur la hausse)</button>
+                <button type="button" class="primary" style="background:#EF4444;border-color:#EF4444;padding:12px;" onclick="executeBeginnerSide('sell')">🔴 Vendre (Parier sur la baisse)</button>
+              </div>
+              <p class="muted small" id="beginnerTradeMsg" style="margin-top:10px;"></p>
+            </form>
+          </div>
+
+          <!-- Guide pédagogique -->
+          <div class="panel">
+            <h3>🎓 Guide & Lexique du Débutant</h3>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+              <details style="background:var(--bg);border:1px solid var(--brd);border-radius:8px;padding:10px;cursor:pointer;">
+                <summary><strong>🕯️ Comment lire les bougies vertes et rouges ?</strong></summary>
+                <p class="muted small" style="margin-top:6px;">Une bougie verte signifie que le cours a augmenté pendant la période. Une bougie rouge signifie qu'il a baissé. Les mèches indiquent les plus hauts et plus bas atteints.</p>
+              </details>
+              <details style="background:var(--bg);border:1px solid var(--brd);border-radius:8px;padding:10px;cursor:pointer;">
+                <summary><strong>💰 Qu'est-ce que le P&L (Profit & Loss) ?</strong></summary>
+                <p class="muted small" style="margin-top:6px;">Le P&L représente votre gain ou votre perte en cours. Il est "non-réalisé" tant que vous ne clôturez pas la position, et devient "réalisé" une fois vendu.</p>
+              </details>
+              <details style="background:var(--bg);border:1px solid var(--brd);border-radius:8px;padding:10px;cursor:pointer;">
+                <summary><strong>🛡️ La règle d'or de la gestion du risque</strong></summary>
+                <p class="muted small" style="margin-top:6px;">Ne risquez jamais plus de 1% à 2% de votre capital total sur une seule position pour résister aux fluctuations du marché.</p>
+              </details>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="dash-split">
-        <div class="panel" id="learnTradePanel">
-          <h3>Ordre papier</h3>
-          <form id="learnOrderForm" class="profile-form" onsubmit="event.preventDefault();">
-            <label>Symbole
-              <input type="text" id="learnSymbol" value="GOOGL" required>
-            </label>
-            <label>Action
-              <select id="learnSide"><option value="buy">Acheter</option><option value="sell">Vendre</option></select>
-            </label>
-            <label>Quantité
-              <input type="number" id="learnQty" value="1" min="0.01" step="0.01" required>
-            </label>
-            <label id="learnOrderTypeWrap" class="hidden">Type
-              <select id="learnOrderType"><option value="market">Market</option><option value="limit">Limit</option></select>
-            </label>
-            <label id="learnLimitWrap" class="hidden">Prix limite
-              <input type="number" id="learnLimit" step="0.01">
-            </label>
-            <button class="primary" type="submit" id="learnSubmitBtn">Acheter / Vendre</button>
-            <p class="muted small" id="learnTradeMsg"></p>
-          </form>
-          <div id="learnGlossary" class="muted small" style="margin-top:12px;"></div>
+
+      <!-- ==================== MODE PRO ==================== -->
+      <div id="tradeProContainer" class="hidden">
+        <div class="panel" style="margin-bottom:12px;">
+          <div class="space-actions" style="margin-bottom:8px;">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span class="badge-brand">⚡ Station Pro</span>
+              <input type="text" id="learnSymbol" value="GOOGL" style="width:110px;text-transform:uppercase;font-weight:700;">
+              <select id="learnChartRange">
+                <option value="5d">5 j</option>
+                <option value="1mo" selected>1 mois</option>
+                <option value="3mo">3 mois</option>
+                <option value="6mo">6 mois</option>
+                <option value="1y">1 an</option>
+              </select>
+              <button class="btn" id="btnLearnChartRefresh" type="button">Actualiser</button>
+            </div>
+            <p class="muted small" id="learnChartSource"></p>
+          </div>
+          <div id="learnChart" style="width:100%;height:340px;"></div>
         </div>
-        <div class="panel">
-          <h3>Assistant</h3>
-          <form id="learnAskForm" class="profile-form" onsubmit="event.preventDefault();">
-            <label>Question
-              <input type="text" id="learnAsk" placeholder="C'est quoi un spread ?">
-            </label>
-            <button class="btn" type="submit">Expliquer</button>
-          </form>
-          <div id="learnAnswer" class="insight-box muted">Pose une question sur ton portefeuille démo ou un terme de trading.</div>
+
+        <div class="dash-split">
+          <!-- Terminal d'ordres pro -->
+          <div class="panel" id="learnTradePanel">
+            <h3>⚡ Carnet & Ordres Pro</h3>
+            <form id="learnOrderForm" class="profile-form" onsubmit="event.preventDefault(); placeLearnOrder();">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <label>Action
+                  <select id="learnSide"><option value="buy">Achat (Long)</option><option value="sell">Vente (Short)</option></select>
+                </label>
+                <label>Type d'ordre
+                  <select id="learnOrderType" onchange="$('#learnLimitWrap').classList.toggle('hidden', this.value!=='limit');">
+                    <option value="market">Marché (Market)</option>
+                    <option value="limit">Limite (Limit Order)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+                <label>Quantité d'unités
+                  <input type="number" id="learnQty" value="1" min="0.001" step="0.01" required>
+                </label>
+                <label id="learnLimitWrap" class="hidden">Prix limite ($)
+                  <input type="number" id="learnLimit" step="0.01">
+                </label>
+              </div>
+
+              <button class="primary" type="submit" id="learnSubmitBtn" style="width:100%;margin-top:12px;padding:11px;">🚀 Exécuter l'ordre pro</button>
+              <p class="muted small" id="learnTradeMsg"></p>
+            </form>
+          </div>
+
+          <!-- Carnet d'ordres simulé (Order Book) -->
+          <div class="panel">
+            <h3>📊 Carnet d'Ordres Simulé (Live Depth)</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.82rem;margin-top:10px;">
+              <div>
+                <strong style="color:#10B981;">Achats (Bids)</strong>
+                <div id="simulatedBids" style="margin-top:6px;display:flex;flex-direction:column;gap:3px;"></div>
+              </div>
+              <div>
+                <strong style="color:#EF4444;">Ventes (Asks)</strong>
+                <div id="simulatedAsks" style="margin-top:6px;display:flex;flex-direction:column;gap:3px;"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="dash-split">
+
+      <!-- POSITIONS & HISTORIQUE (POUR LES DEUX MODES) -->
+      <div class="dash-split" style="margin-top:16px;">
         <div class="panel">
-          <h3>Positions</h3>
+          <h3>📦 Positions Ouvertes</h3>
           <div class="table-wrap">
             <table class="data-table" id="learnPosTable">
-              <thead><tr><th>Symbole</th><th>Qty</th><th>Prix moy.</th><th>Dernier</th><th>P&amp;L</th></tr></thead>
+              <thead><tr><th>Symbole</th><th>Quantité</th><th>Prix d'Entrée</th><th>Prix Actuel</th><th>P&amp;L</th><th>Action</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
+
         <div class="panel">
-          <h3>Fills récents</h3>
+          <h3>🎲 Parts de Prédictions (Polymarket)</h3>
           <div class="table-wrap">
-            <table class="data-table" id="learnFillsTable">
-              <thead><tr><th>Symbole</th><th>Side</th><th>Qty</th><th>Prix</th><th>Date</th></tr></thead>
+            <table class="data-table" id="learnPredTable">
+              <thead><tr><th>Marché</th><th>Position</th><th>Parts</th><th>Mise</th><th>Gain Potentiel</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:16px;">
+        <h3>📜 Historique des Exécutions (Fills)</h3>
+        <div class="table-wrap">
+          <table class="data-table" id="learnFillsTable">
+            <thead><tr><th>Symbole</th><th>Sens</th><th>Quantité</th><th>Prix d'exécution</th><th>Date</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -527,6 +632,44 @@
       <textarea id="medCaseSummary" rows="2" placeholder="Cas anonymisé pour mise en relation avec le centre investigateurs..."></textarea>
       <button id="btnGenerateMedicalEmail" class="primary" type="button" style="width:100%;margin-top:8px;">📧 Contacter le centre</button>
     </div>
+  </div>
+</div>
+
+<!-- Polymarket Prediction Bet Modal -->
+<div id="betModal" class="modal hidden">
+  <div class="modal-card" style="max-width: 440px;">
+    <button class="close" id="betClose" type="button">✕</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span class="badge-brand">🎲 Prédiction Polymarket</span>
+    </div>
+    <h3 id="betQuestion" style="margin:0 0 10px;font-size:1.1rem;line-height:1.35;"></h3>
+    <div style="background:var(--bg);border:1px solid var(--brd);border-radius:12px;padding:12px;margin:12px 0;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+        <span class="muted">Position choisie :</span>
+        <strong id="betOutcomeBadge" style="font-size:1.05rem;"></strong>
+      </div>
+      <div style="display:flex;justify-content:space-between;">
+        <span class="muted">Prix unitaire par part :</span>
+        <strong id="betPriceDisplay"></strong>
+      </div>
+    </div>
+    <form id="betForm" onsubmit="event.preventDefault(); submitBet();">
+      <label style="display:block;margin-bottom:6px;font-size:0.9rem;color:var(--txt);">Montant virtuel à miser ($)
+        <div style="display:flex;gap:6px;margin:6px 0;">
+          <button type="button" class="chip-example" onclick="$('#betAmount').value=10; updateBetPayout();">$10</button>
+          <button type="button" class="chip-example" onclick="$('#betAmount').value=50; updateBetPayout();">$50</button>
+          <button type="button" class="chip-example" onclick="$('#betAmount').value=100; updateBetPayout();">$100</button>
+          <button type="button" class="chip-example" onclick="$('#betAmount').value=500; updateBetPayout();">$500</button>
+        </div>
+        <input type="number" id="betAmount" value="50" min="1" step="1" required oninput="updateBetPayout();" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--brd);background:var(--bg);color:var(--txt);font-size:1.1rem;font-weight:700;">
+      </label>
+      <div style="background:var(--panel-soft);border:1px solid var(--brd);border-radius:10px;padding:10px;margin:12px 0;display:flex;justify-content:space-between;align-items:center;">
+        <span class="muted small">Gain potentiel si OUI/NON valide :</span>
+        <strong id="betPotentialGain" style="color:#10B981;font-size:1.15rem;">$0.00</strong>
+      </div>
+      <button class="primary" type="submit" style="width:100%;padding:12px;font-size:1rem;">✅ Confirmer l'achat de parts</button>
+    </form>
+    <p id="betMsg" class="muted small" style="margin-top:10px;text-align:center;"></p>
   </div>
 </div>
 
