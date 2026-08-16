@@ -137,6 +137,10 @@ _PUBLIC_WRITE_ENDPOINTS = {
     "/api/auth/register",
     "/api/auth/login",
     "/api/auth/firebase",
+    "/api/chat",
+    "/api/learn/explain",
+    "/api/push/subscribe",
+    "/api/predictions/bet",
 }
 
 # Endpoints GET qui nécessitent quand même l'auth (données sensibles)
