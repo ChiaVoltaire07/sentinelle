@@ -1602,6 +1602,34 @@ async function resetLearn() {
   paintLearn(p);
 }
 
+async function askLearn(promptText) {
+  const q = promptText || ($("#learnAsk")?.value || "").trim();
+  if (!q) return;
+  const ansBox = $("#learnAnswer");
+  if (!ansBox) return;
+  ansBox.style.display = "block";
+  ansBox.innerHTML = '<p class="muted">🤖 Analyse IA en cours...</p>';
+  try {
+    const res = await api("/api/learn/explain", {
+      method: "POST",
+      body: JSON.stringify({ question: q }),
+    });
+    if (res.error) {
+      ansBox.innerHTML = `<p style="color:#EF4444;">⚠️ ${esc(res.error)}</p>`;
+      return;
+    }
+    ansBox.innerHTML = mdToHtml(res.answer || "Aucune analyse disponible.") + 
+      (res.disclaimer ? `<p class="muted small" style="margin-top:8px;"><em>${esc(res.disclaimer)}</em></p>` : "");
+  } catch (e) {
+    ansBox.innerHTML = '<p class="muted">Erreur lors de la génération de l\'analyse.</p>';
+  }
+}
+
+function askLearnPrompt(txt) {
+  if ($("#learnAsk")) $("#learnAsk").value = txt;
+  askLearn(txt);
+}
+
 // Initialise event listeners on startup
 function wireTradingEvents() {
   $("#tabModeBeginner")?.addEventListener("click", () => switchTradeMode("beginner"));
@@ -1609,9 +1637,12 @@ function wireTradingEvents() {
   $("#btnLearnReset")?.addEventListener("click", resetLearn);
   $("#btnLearnChartRefresh")?.addEventListener("click", loadLearnChart);
   $("#betClose")?.addEventListener("click", () => $("#betModal")?.classList.add("hidden"));
+  $("#learnAskForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    askLearn();
+  });
 }
 
-const origInit = window.init;
 document.addEventListener("DOMContentLoaded", () => {
   wireTradingEvents();
 });

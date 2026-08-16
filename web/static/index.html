@@ -511,6 +511,26 @@
         </div>
       </div>
 
+      <!-- ASSISTANT IA TRADING -->
+      <div class="panel" style="margin-top:16px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <span class="badge-brand">🤖 Assistant IA Trading</span>
+          <h3 style="margin:0;">Analyse &amp; Conseil Pédagogique</h3>
+        </div>
+        <p class="muted small">Posez une question sur votre portefeuille virtuel, un indicateur technique ou demandez une explication détaillée.</p>
+        <div class="landing-examples" style="justify-content:flex-start;margin:8px 0 12px;">
+          <button type="button" class="chip-example" onclick="askLearnPrompt('Analyse la santé et la rentabilité de mon portefeuille démo')">📊 Analyser mon portefeuille</button>
+          <button type="button" class="chip-example" onclick="askLearnPrompt('Comment utiliser les ordres limites pour minimiser mes risques ?')">🛡️ Gérer le risque</button>
+          <button type="button" class="chip-example" onclick="askLearnPrompt('Explique-moi la différence entre un ordre Market et un ordre Limit')">⚖️ Market vs Limit</button>
+          <button type="button" class="chip-example" onclick="askLearnPrompt('C\'est quoi le spread et comment impacte-t-il les gains ?')">💡 Qu'est-ce que le spread ?</button>
+        </div>
+        <form id="learnAskForm" class="profile-form" onsubmit="event.preventDefault(); askLearn();" style="display:flex;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="learnAsk" placeholder="Ex: Que penses-tu de ma diversification ?" style="flex:1;min-width:220px;padding:10px 14px;border-radius:10px;background:var(--bg);border:1px solid var(--brd);color:var(--txt);">
+          <button class="primary" type="submit" style="padding:10px 18px;white-space:nowrap;">💬 Demander à l'IA</button>
+        </form>
+        <div id="learnAnswer" class="insight-box muted" style="margin-top:12px;display:none;"></div>
+      </div>
+
       <div class="panel" style="margin-top:16px;">
         <h3>📜 Historique des Exécutions (Fills)</h3>
         <div class="table-wrap">
