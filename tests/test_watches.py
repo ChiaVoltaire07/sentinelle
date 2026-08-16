@@ -72,10 +72,13 @@ class TestWatchApi(unittest.TestCase):
         with mock.patch("bot.watch_engine.WatchNewsScraper.search", return_value=[
             {"title": "News", "url": "https://n.example/1", "provider": "X", "summary": "s", "event_type": "news", "published_at": None}
         ]):
-            with mock.patch("bot.watch_engine.fetch_yahoo_chart", return_value=[
-                {"ts": "2026-01-01T00:00:00+00:00", "price": 10.0, "volume": 100},
-                {"ts": "2026-01-02T00:00:00+00:00", "price": 12.0, "volume": 100},
-            ]):
+            with mock.patch("bot.market_data.get_chart", return_value={
+                "points": [
+                    {"ts": "2026-01-01T00:00:00+00:00", "price": 10.0, "volume": 100, "source": "test"},
+                    {"ts": "2026-01-02T00:00:00+00:00", "price": 12.0, "volume": 100, "source": "test"},
+                ],
+                "source": "test",
+            }):
                 r = self.client.post("/api/watches", json={"title": "Google", "refresh": True}, headers=headers)
                 self.assertEqual(r.status_code, 200)
                 slug = r.json()["slug"]
