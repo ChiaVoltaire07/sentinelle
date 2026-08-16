@@ -21,8 +21,28 @@ DEFAULT_QUERIES = [
 ]
 
 
+GEOPOLITICS_FEEDS = [
+    {"name": "France 24 Monde", "url": "https://www.france24.com/fr/monde/rss"},
+    {"name": "Courrier International", "url": "https://www.courrierinternational.com/feed/all/rss.xml"},
+    {"name": "France Info International", "url": "https://www.francetvinfo.fr/monde.rss"},
+]
+
+
 class GeopoliticsScraper(BaseScraper):
     name = "geopolitics"
+
+    def _extract_image(self, item, desc_soup) -> str:
+        enc = item.find("enclosure")
+        if enc and enc.get("url") and any(ext in enc["url"].lower() for ext in [".jpg", ".jpeg", ".png", ".webp", "image"]):
+            return enc["url"]
+        for tag in ["media:content", "media:thumbnail"]:
+            m = item.find(tag)
+            if m and m.get("url"):
+                return m["url"]
+        img = desc_soup.find("img")
+        if img and img.get("src") and img["src"].startswith("http"):
+            return img["src"]
+        return "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=700&auto=format&fit=crop&q=80"
 
     def search(self, query: str, limit: int = 12) -> List[Offer]:
         escaped = urllib.parse.quote_plus(query)
@@ -37,14 +57,12 @@ class GeopoliticsScraper(BaseScraper):
             title = item.find("title").get_text() if item.find("title") else ""
             link = item.find("link").get_text() if item.find("link") else ""
             desc_raw = item.find("description").get_text() if item.find("description") else ""
-            description = BeautifulSoup(desc_raw, "html.parser").get_text().replace("&nbsp;", " ").strip()
+            desc_soup = BeautifulSoup(desc_raw, "html.parser")
+            description = desc_soup.get_text().replace("&nbsp;", " ").strip()
             provider = "Google News"
             if " - " in title:
                 title, provider = title.rsplit(" - ", 1)
-            enc = item.find("enclosure")
-            img_url = enc["url"] if enc and enc.get("url") else ""
-            if not img_url:
-                img_url = "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?w=700&auto=format&fit=crop&q=80"
+            img_url = self._extract_image(item, desc_soup)
             out.append(Offer(
                 title=title,
                 url=link,
@@ -62,10 +80,44 @@ class GeopoliticsScraper(BaseScraper):
             return self.search(query)
         seen = set()
         out: List[Offer] = []
+
+        # 1. Flux directs avec photos réelles
+        for feed in GEOPOLITICS_FEEDS:
+            try:
+                xml = self.fetch_static(feed["url"])
+                if not xml:
+                    continue
+                soup = BeautifulSoup(xml, "html.parser")
+                for item in soup.find_all("item")[:8]:
+                    title = (item.find("title").get_text() if item.find("title") else "").strip()
+                    link = (item.find("link").get_text() if item.find("link") else "").strip()
+                    if not title or link in seen:
+                        continue
+                    seen.add(link)
+                    desc_raw = item.find("description").get_text() if item.find("description") else ""
+                    desc_soup = BeautifulSoup(desc_raw, "html.parser")
+                    description = desc_soup.get_text().replace("&nbsp;", " ").strip()
+                    img_url = self._extract_image(item, desc_soup)
+                    out.append(Offer(
+                        title=title,
+                        url=link,
+                        source="geopolitics_news",
+                        provider=feed["name"],
+                        offer_type="geopolitics",
+                        description=description or "Analyse des relations internationales.",
+                        keywords_matched=["geopolitics", "international"],
+                        image_url=img_url,
+                    ))
+            except Exception as e:
+                log.warning("[geopolitics] Erreur flux %s: %s", feed["name"], e)
+
+        # 2. Requêtes par mots-clés
         for q in DEFAULT_QUERIES:
-            for o in self.search(q, limit=6):
+            if len(out) >= 25:
+                break
+            for o in self.search(q, limit=4):
                 if o.url in seen:
                     continue
                 seen.add(o.url)
                 out.append(o)
-        return out[:30]
+        return out

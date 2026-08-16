@@ -110,38 +110,91 @@ class CryptoScraper(BaseScraper):
         return out
 
     def news(self, query: str = "cryptocurrency OR bitcoin OR ethereum") -> List[Offer]:
+        out: List[Offer] = []
+        seen = set()
+
+        # 1. Flux RSS direct spécialisés avec vraies images d'articles
+        specialized = [
+            {"name": "Cryptoast", "url": "https://cryptoast.fr/feed/"},
+            {"name": "CoinTelegraph", "url": "https://cointelegraph.com/rss"},
+        ]
+        for feed in specialized:
+            try:
+                xml = self.fetch_static(feed["url"])
+                if not xml:
+                    continue
+                soup = BeautifulSoup(xml, "html.parser")
+                for item in soup.find_all("item")[:6]:
+                    title = (item.find("title").get_text() if item.find("title") else "").strip()
+                    link = (item.find("link").get_text() if item.find("link") else "").strip()
+                    if not title or link in seen:
+                        continue
+                    seen.add(link)
+                    desc_raw = item.find("description").get_text() if item.find("description") else ""
+                    desc_soup = BeautifulSoup(desc_raw, "html.parser")
+                    description = desc_soup.get_text().replace("&nbsp;", " ").strip()
+                    
+                    img_url = ""
+                    enc = item.find("enclosure")
+                    if enc and enc.get("url"):
+                        img_url = enc["url"]
+                    media = item.find("media:content") or item.find("media:thumbnail")
+                    if not img_url and media and media.get("url"):
+                        img_url = media["url"]
+                    img_tag = desc_soup.find("img")
+                    if not img_url and img_tag and img_tag.get("src"):
+                        img_url = img_tag["src"]
+                    if not img_url:
+                        img_url = "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=700&auto=format&fit=crop&q=80"
+                        
+                    out.append(Offer(
+                        title=title,
+                        url=link,
+                        source="crypto_news",
+                        provider=feed["name"],
+                        offer_type="crypto",
+                        description=description or "Consultez l'actualité crypto complète.",
+                        keywords_matched=["crypto", "news"],
+                        image_url=img_url,
+                    ))
+            except Exception as e:
+                log.warning("[crypto] Erreur flux %s: %s", feed["name"], e)
+
+        # 2. Requête Google News en complément
         escaped = urllib.parse.quote_plus(query)
         url = f"https://news.google.com/rss/search?q={escaped}&hl=fr&gl=FR&ceid=FR:fr"
         xml = self.fetch_static(url)
-        if not xml:
-            return []
-        soup = BeautifulSoup(xml, "html.parser")
-        out: List[Offer] = []
-        for item in soup.find_all("item")[:12]:
-            title = item.find("title").get_text() if item.find("title") else ""
-            link = item.find("link").get_text() if item.find("link") else ""
-            provider = "Google News"
-            if " - " in title:
-                title, provider = title.rsplit(" - ", 1)
-            
-            desc_raw = item.find("description").get_text() if item.find("description") else ""
-            description = BeautifulSoup(desc_raw, "html.parser").get_text().replace("&nbsp;", " ").strip()
-            
-            enc = item.find("enclosure")
-            img_url = enc["url"] if enc and enc.get("url") else ""
-            if not img_url:
-                img_url = "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=700&auto=format&fit=crop&q=80"
+        if xml:
+            soup = BeautifulSoup(xml, "html.parser")
+            for item in soup.find_all("item")[:8]:
+                title = item.find("title").get_text() if item.find("title") else ""
+                link = item.find("link").get_text() if item.find("link") else ""
+                if not title or link in seen:
+                    continue
+                seen.add(link)
+                provider = "Google News"
+                if " - " in title:
+                    title, provider = title.rsplit(" - ", 1)
                 
-            out.append(Offer(
-                title=title,
-                url=link,
-                source="crypto_news",
-                provider=provider,
-                offer_type="crypto",
-                description=description or "Consultez l'actualité crypto complète.",
-                keywords_matched=["crypto", "news"],
-                image_url=img_url,
-            ))
+                desc_raw = item.find("description").get_text() if item.find("description") else ""
+                desc_soup = BeautifulSoup(desc_raw, "html.parser")
+                description = desc_soup.get_text().replace("&nbsp;", " ").strip()
+                
+                enc = item.find("enclosure")
+                img_url = enc["url"] if enc and enc.get("url") else ""
+                if not img_url:
+                    img_url = "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=700&auto=format&fit=crop&q=80"
+                    
+                out.append(Offer(
+                    title=title,
+                    url=link,
+                    source="crypto_news",
+                    provider=provider,
+                    offer_type="crypto",
+                    description=description or "Consultez l'actualité crypto complète.",
+                    keywords_matched=["crypto", "news"],
+                    image_url=img_url,
+                ))
         return out
 
     def run(self, query: Optional[str] = None) -> List[Offer]:
