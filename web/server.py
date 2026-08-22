@@ -146,15 +146,22 @@ def create_app(store: Store = None) -> FastAPI:
     app.include_router(create_router(app.state.store))
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # CORS — permissif en dev, restrictif en prod
-    is_prod = os.getenv("PYTHON_ENV") == "production"
-    origins = ["*"] if not is_prod else [
-        os.getenv("CORS_ORIGIN", "https://sentinelle.onrender.com"),
-        "https://sentinelle.onrender.com",
-    ]
+    # CORS — support de tous les sous-domaines Render, localhost et origines personnalisées
+    cors_origin_env = os.getenv("CORS_ORIGIN", "")
+    explicit_origins = [o.strip() for o in cors_origin_env.split(",") if o.strip()]
+    if not explicit_origins:
+        explicit_origins = [
+            "https://sentinelle.onrender.com",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+            "http://localhost:3000",
+            "http://localhost:5173",
+        ]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=origins,
+        allow_origins=explicit_origins,
+        allow_origin_regex=r"^https?://([a-zA-Z0-9_\-]+\.)*(onrender\.com|localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
