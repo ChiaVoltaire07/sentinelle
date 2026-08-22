@@ -50,7 +50,19 @@ async function api(path, opts = {}) {
     headers.Authorization = "Bearer " + state.token;
   }
   const r = await fetch(path, { ...opts, headers });
-  return r.json();
+  const contentType = r.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const data = await r.json();
+    if (!r.ok && !data.error) {
+      data.error = `Erreur HTTP ${r.status}`;
+    }
+    return data;
+  }
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(text.slice(0, 120) || `Erreur HTTP ${r.status}`);
+  }
+  return {};
 }
 
 function esc(s) {
@@ -510,7 +522,7 @@ async function ask(raw) {
       body: JSON.stringify({ message, session_id: state.sessionId }),
     });
     typing.remove();
-    if (res.error) {
+    if (res.error && !res.reply) {
       appendBubble("bot", `⚠️ ${res.error}`);
     } else {
       appendBubble("bot", res.reply || "Recherche complétée.", res.sources || res.offers || []);
@@ -527,7 +539,11 @@ async function ask(raw) {
     if (typeof loadWatches === "function") loadWatches();
   } catch (e) {
     typing.remove();
-    appendBubble("bot", "Erreur réseau pendant la recherche.");
+    console.error("[Chat] Request error:", e);
+    const errMsg = (e && e.message && !e.message.includes("Failed to fetch"))
+      ? `Erreur : ${e.message}`
+      : "Erreur de connexion au serveur ou délai dépassé. Veuillez réessayer.";
+    appendBubble("bot", errMsg);
   }
 }
 
