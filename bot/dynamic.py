@@ -13,11 +13,11 @@ from bot.credibility.engine import score_offer
 from bot.credibility.dna import offer_dna
 from normalizer import classify, matches_keywords
 from scrapers.base import BaseScraper
-from config import DEFAULT_HEADERS, REQUEST_TIMEOUT
-
+from config import DEFAULT_HEADERS, REQUEST_TIMEOUT, DYNAMIC_TIMEOUT
+ 
 log = logging.getLogger(__name__)
-
-
+ 
+ 
 class DynamicScraper(BaseScraper):
     name = "dynamic"
 
@@ -38,7 +38,7 @@ class DynamicScraper(BaseScraper):
         url = f"https://news.google.com/rss/search?q={escaped_query}&hl=fr&gl=FR&ceid=FR:fr"
         log.info("[dynamic] recherche Google News RSS: %s", url)
         
-        xml_content = self.fetch_static(url)
+        xml_content = self.fetch_static(url, timeout=DYNAMIC_TIMEOUT)
         if not xml_content:
             return []
 
@@ -78,7 +78,7 @@ class DynamicScraper(BaseScraper):
         log.info("[dynamic] recherche HN: %s", url)
         
         try:
-            resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            resp = self.session.get(url, timeout=DYNAMIC_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             out: List[Offer] = []
@@ -109,7 +109,7 @@ class DynamicScraper(BaseScraper):
         log.info("[dynamic] recherche Reddit: %s", url)
         
         try:
-            resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            resp = self.session.get(url, timeout=DYNAMIC_TIMEOUT)
             resp.raise_for_status()
             data = resp.json()
             children = data.get("data", {}).get("children", [])
@@ -165,7 +165,7 @@ def run_dynamic_scrape(store: Store, intent: str, query: str, category: Optional
     if intent == "search_jobs":
         from scrapers.jobs import JobsScraper
         from bot.user_profile import get_profile_store
-        from bot.opportunities import score_offer
+        from bot.opportunities import score_offer as score_opp_offer
         profile = get_profile_store().get()
         # 1. Google News avec thématique emploi (+ profil)
         loc_bits = []
@@ -189,7 +189,7 @@ def run_dynamic_scrape(store: Store, intent: str, query: str, category: Optional
         filtered_jobs = []
         for j in general_jobs:
             blob = f"{j.title} {j.description} {' '.join(j.keywords_matched or [])}".lower()
-            if low_query in blob or score_offer(j, profile, {"q": query}) >= 4:
+            if low_query in blob or score_opp_offer(j, profile, {"q": query}) >= 4:
                 filtered_jobs.append(j)
         raw_offers.extend(filtered_jobs or general_jobs[:15])
 

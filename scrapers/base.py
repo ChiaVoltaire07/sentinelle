@@ -42,9 +42,9 @@ class BaseScraper:
         self.session.headers.update(DEFAULT_HEADERS)
 
     # --- récupération HTML ---
-    def fetch_static(self, url: str) -> Optional[str]:
+    def fetch_static(self, url: str, timeout: Optional[int] = None) -> Optional[str]:
         try:
-            resp = self.session.get(url, timeout=REQUEST_TIMEOUT)
+            resp = self.session.get(url, timeout=timeout or REQUEST_TIMEOUT)
             resp.raise_for_status()
             return resp.text
         except Exception as e:

@@ -14,7 +14,8 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
 }
 
-REQUEST_TIMEOUT = 20  # secondes
+REQUEST_TIMEOUT = 10  # secondes
+DYNAMIC_TIMEOUT = 6   # secondes max pour le scraping interactif chat
 
 # Pages officielles des fournisseurs d'IA.
 #   js=True  -> le bot essaiera Playwright (si installé) puis requests en repli
