@@ -183,8 +183,29 @@ class Store:
             except sqlite3.OperationalError:
                 pass
 
+    def _ensure_pg_conn(self):
+        """Vérifie la liveness de la connexion PostgreSQL et reconnecte si nécessaire."""
+        if not self.use_pg:
+            return
+        try:
+            if self.conn is None or getattr(self.conn, "closed", 0) != 0:
+                self.conn = psycopg2.connect(self.db_url)
+                self.conn.autocommit = True
+            else:
+                with self.conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+        except Exception:
+            try:
+                if self.conn:
+                    self.conn.close()
+            except Exception:
+                pass
+            self.conn = psycopg2.connect(self.db_url)
+            self.conn.autocommit = True
+
     def _query(self, sql: str, params: tuple = ()) -> list:
         if self.use_pg:
+            self._ensure_pg_conn()
             pg_sql = sql.replace("?", "%s")
             with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(pg_sql, params)
@@ -194,6 +215,7 @@ class Store:
 
     def _query_one(self, sql: str, params: tuple = ()) -> Optional[dict]:
         if self.use_pg:
+            self._ensure_pg_conn()
             pg_sql = sql.replace("?", "%s")
             with self.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(pg_sql, params)
@@ -203,6 +225,7 @@ class Store:
 
     def _execute(self, sql: str, params: tuple = ()) -> Optional[int]:
         if self.use_pg:
+            self._ensure_pg_conn()
             pg_sql = sql.replace("?", "%s")
             if "INSERT OR IGNORE INTO alert_notifications" in pg_sql:
                 pg_sql = pg_sql.replace("INSERT OR IGNORE INTO", "INSERT INTO")
