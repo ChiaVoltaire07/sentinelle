@@ -235,92 +235,126 @@ def create_router(store: Store) -> APIRouter:
     # --- chat conversationnel et scraping dynamique (ancré sources) ---
     @router.post("/chat")
     async def chat(body: dict, request: Request, authorization: Optional[str] = Header(None)):
-        user, err = await _unified_auth(request, authorization)
-        if err:
-            return err
-        message = body.get("message", "")
-        session_id = body.get("session_id") or "default"
-        if not message:
-            return JSONResponse({"error": "Empty message"}, 400)
+        try:
+            user, err = await _unified_auth(request, authorization)
+            if err:
+                return err
+            message = (body.get("message") or "").strip()
+            session_id = body.get("session_id") or "default"
+            if not message:
+                return JSONResponse({"error": "Empty message"}, 400)
 
-        from bot.chat_history import get_history_store
-        history = get_history_store()
-        history.add(session_id, "user", message)
+            history = None
+            try:
+                from bot.chat_history import get_history_store
+                history = get_history_store()
+                history.add(session_id, "user", message)
+            except Exception as e_hist:
+                log.warning("[chat] Erreur enregistrement historique user : %s", e_hist)
 
-        analysis = parse_user_intent(message)
-        intent = analysis.get("intent", "chat")
-        query = analysis.get("query", "")
-        category = analysis.get("category")
-        reply = analysis.get("reply", "Je traite votre demande...")
+            analysis = parse_user_intent(message)
+            intent = analysis.get("intent", "chat")
+            query = analysis.get("query", "")
+            category = analysis.get("category")
+            reply = analysis.get("reply", "Je traite votre demande...")
 
-        offers = []
-        watch_payload = None
-        if intent == "create_watch" and query:
-            from bot.watch_store import get_watch_store, guess_kind_and_ticker
-            from bot.watch_engine import refresh_watch, generate_watch_insight
-            store_w = get_watch_store()
-            kind, ticker = guess_kind_and_ticker(query)
-            existing = None
-            for w in store_w.list():
-                if query.lower() in w["title"].lower() or query.lower() in w["query"].lower():
-                    existing = w
-                    break
-            if existing:
-                watch = existing
-            else:
-                watch = store_w.create(title=query, kind=kind, query=query, ticker=ticker)
-            await asyncio.to_thread(refresh_watch, watch["id"])
-            insight = await asyncio.to_thread(generate_watch_insight, watch["id"], "summary")
-            dash = store_w.dashboard(watch["id"])
-            content = (insight or {}).get("content") or reply
-            reply = (
-                f"Suivi **{watch['title']}** prêt (slug `{watch['slug']}`).\n\n"
-                f"{content}\n\n"
-                f"Ouvre le dashboard dans **Mes suivis** → {watch['title']}."
-            )
-            watch_payload = {"watch": watch, "dashboard": dash}
-        elif intent != "chat" and query:
-            offers = await asyncio.to_thread(
-                run_dynamic_scrape, store, intent, query, category
-            )
-            if offers:
-                digest = synthesize_digest(message, offers)
-                reply = digest or reply
-            else:
-                reply = (
-                    f"Aucune source scrapée trouvée pour « {query} ». "
-                    "Affine ta requête (mots-clés plus précis, autre espace thématique) "
-                    "— je ne complète pas avec des connaissances hors scraping."
+            offers = []
+            watch_payload = None
+            if intent == "create_watch" and query:
+                try:
+                    from bot.watch_store import get_watch_store, guess_kind_and_ticker
+                    from bot.watch_engine import refresh_watch, generate_watch_insight
+                    store_w = get_watch_store()
+                    kind, ticker = guess_kind_and_ticker(query)
+                    existing = None
+                    for w in store_w.list():
+                        if query.lower() in w["title"].lower() or query.lower() in w["query"].lower():
+                            existing = w
+                            break
+                    if existing:
+                        watch = existing
+                    else:
+                        watch = store_w.create(title=query, kind=kind, query=query, ticker=ticker)
+                    await asyncio.to_thread(refresh_watch, watch["id"])
+                    insight = await asyncio.to_thread(generate_watch_insight, watch["id"], "summary")
+                    dash = store_w.dashboard(watch["id"])
+                    content = (insight or {}).get("content") or reply
+                    reply = (
+                        f"Suivi **{watch['title']}** prêt (slug `{watch['slug']}`).\n\n"
+                        f"{content}\n\n"
+                        f"Ouvre le dashboard dans **Mes suivis** → {watch['title']}."
+                    )
+                    watch_payload = {"watch": watch, "dashboard": dash}
+                except Exception as e_w:
+                    log.warning("[chat] Erreur création suivi : %s", e_w)
+                    reply = f"Création du suivi « {query} » initiée mais une étape a pris du retard."
+            elif intent != "chat" and query:
+                try:
+                    offers = await asyncio.to_thread(
+                        run_dynamic_scrape, store, intent, query, category
+                    )
+                except Exception as e_scr:
+                    log.warning("[chat] Erreur scraping dynamique : %s", e_scr)
+                    offers = []
+
+                if offers:
+                    try:
+                        digest = synthesize_digest(message, offers)
+                        reply = digest or reply
+                    except Exception as e_dig:
+                        log.warning("[chat] Erreur synthèse digest : %s", e_dig)
+                else:
+                    reply = (
+                        f"Aucune source scrapée trouvée pour « {query} ». "
+                        "Affine ta requête (mots-clés plus précis, autre espace thématique) "
+                        "— je ne complète pas avec des connaissances hors scraping."
+                    )
+            elif intent == "chat":
+                # Pas de digression encyclopédique
+                reply = analysis.get("reply") or (
+                    "Pose une question concrète : je scraperai des sources et répondrai uniquement à partir d'elles. "
+                    "Tu peux aussi dire « suis SpaceX » ou « suis la guerre en Iran » pour créer un dashboard."
                 )
-        elif intent == "chat":
-            # Pas de digression encyclopédique
-            reply = analysis.get("reply") or (
-                "Pose une question concrète : je scraperai des sources et répondrai uniquement à partir d'elles. "
-                "Tu peux aussi dire « suis SpaceX » ou « suis la guerre en Iran » pour créer un dashboard."
-            )
 
-        sources = [
-            {
-                "title": o.title,
-                "url": o.url,
-                "provider": o.provider,
-                "offer_type": o.offer_type,
-                "description": (o.description or "")[:240],
+            sources = [
+                {
+                    "title": o.title,
+                    "url": o.url,
+                    "provider": o.provider,
+                    "offer_type": o.offer_type,
+                    "description": (o.description or "")[:240],
+                }
+                for o in offers[:15]
+            ]
+            if history:
+                try:
+                    history.add(session_id, "assistant", reply, sources)
+                except Exception as e_h2:
+                    log.warning("[chat] Erreur enregistrement historique assistant : %s", e_h2)
+
+            return {
+                "intent": intent,
+                "query": query,
+                "category": category,
+                "reply": reply,
+                "session_id": session_id,
+                "sources": sources,
+                "offers": [o.to_dict() for o in offers],
+                "watch": watch_payload,
             }
-            for o in offers[:15]
-        ]
-        history.add(session_id, "assistant", reply, sources)
-
-        return {
-            "intent": intent,
-            "query": query,
-            "category": category,
-            "reply": reply,
-            "session_id": session_id,
-            "sources": sources,
-            "offers": [o.to_dict() for o in offers],
-            "watch": watch_payload,
-        }
+        except Exception as e_global:
+            log.exception("[chat] Erreur non gérée dans /api/chat : %s", e_global)
+            return JSONResponse({
+                "intent": "chat",
+                "query": "",
+                "category": None,
+                "reply": "Une erreur temporaire est survenue lors de la recherche. Réessaie avec d'autres mots-clés.",
+                "session_id": body.get("session_id") or "default",
+                "sources": [],
+                "offers": [],
+                "watch": None,
+                "error": str(e_global)
+            }, status_code=200)
 
     @router.get("/chat/history")
     async def chat_history_sessions(limit: int = 30):
