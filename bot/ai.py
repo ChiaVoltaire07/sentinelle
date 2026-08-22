@@ -28,9 +28,14 @@ def call_gemini(prompt: str, json_mode: bool = False) -> Optional[str]:
     if not key:
         return None
 
-    primary = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
-    fallbacks = ["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-flash-latest"]
-    models = [primary] + [m for m in fallbacks if m != primary]
+    primary = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    fallback_candidates = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
+    seen = set()
+    models = []
+    for m in [primary] + fallback_candidates:
+        if m and m not in seen:
+            seen.add(m)
+            models.append(m)
 
     payload: Dict = {
         "contents": [{"parts": [{"text": prompt}]}]
@@ -45,7 +50,10 @@ def call_gemini(prompt: str, json_mode: bool = False) -> Optional[str]:
     for model in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            resp = requests.post(url, headers=headers, json=payload, timeout=12)
+            if resp.status_code in (401, 403):
+                log.warning("[AI] Clé API Gemini non autorisée / invalide (HTTP %d). Appel ignoré.", resp.status_code)
+                return None
             if resp.status_code in (429, 404, 503):
                 log.warning("[AI] Gemini %s indisponible (HTTP %d) — modèle suivant", model, resp.status_code)
                 continue
@@ -60,6 +68,9 @@ def call_gemini(prompt: str, json_mode: bool = False) -> Optional[str]:
                 if texts:
                     return "".join(texts).strip()
             return None
+        except requests.Timeout:
+            log.warning("[AI] Timeout Gemini (%s) dépassé (12s) — modèle suivant", model)
+            continue
         except Exception as e:
             log.warning("[AI] Erreur appel Gemini (%s) : %s", model, e)
     
@@ -77,7 +88,7 @@ def call_ollama(prompt: str) -> Optional[str]:
             "prompt": prompt,
             "stream": False
         }
-        resp = requests.post(url, json=payload, timeout=45)
+        resp = requests.post(url, json=payload, timeout=8)
         resp.raise_for_status()
         return resp.json().get("response", "").strip()
     except Exception as e:
@@ -442,7 +453,7 @@ def get_embedding(text: str) -> Optional[List[float]]:
         "outputDimensionality": 768
     }
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp = requests.post(url, headers=headers, json=payload, timeout=8)
         resp.raise_for_status()
         data = resp.json()
         return data.get("embedding", {}).get("values")
