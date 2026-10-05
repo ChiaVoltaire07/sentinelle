@@ -1,0 +1,19 @@
+name: Correctif à traiter après l'atelier
+description: Bug ou amélioration qui demande de lire le code. Pas une première pull request.
+title: "[Plus tard] "
+labels:
+  - plus-tard
+body:
+  - type: textarea
+    id: constat
+    attributes:
+      label: Constat
+      description: Quel comportement poses-tu, et dans quel fichier ?
+    validations:
+      required: true
+  - type: textarea
+    id: critere
+    attributes:
+      label: Comment savoir que c'est réglé
+    validations:
+      required: true

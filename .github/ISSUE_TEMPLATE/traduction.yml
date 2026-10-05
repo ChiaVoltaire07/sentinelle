@@ -1,0 +1,22 @@
+name: Traduction ou document nouveau
+description: Proposer une langue ou un guide qui n'a pas encore d'issue. Un fichier, une personne.
+title: "docs: "
+labels:
+  - documentation
+  - good first issue
+body:
+  - type: input
+    id: path
+    attributes:
+      label: Chemin du fichier nouveau
+      description: Exemple docs/i18n/de/README.md. Ne vise pas un fichier déjà listé dans une issue ouverte.
+      placeholder: docs/i18n/de/README.md
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Texte source
+      description: Quel document français traduis-tu, ou quel guide veux-tu écrire ?
+    validations:
+      required: true
